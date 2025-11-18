@@ -47,15 +47,7 @@ async function start() {
       prefix: '/'
     });
 
-    // Configurar WebSocket
-    setupWebSocket(fastify);
-
-    // Registrar rutas
-    await fastify.register(authRoutes, { prefix: '/api/auth' });
-    await fastify.register(apiRoutes, { prefix: '/api' });
-    await fastify.register(otaRoutes, { prefix: '/api/ota' });
-
-    // Decorador para verificar JWT
+    // Decorador para verificar JWT (debe estar antes de las rutas)
     fastify.decorate('authenticate', async function(request, reply) {
       try {
         await request.jwtVerify();
@@ -63,6 +55,14 @@ async function start() {
         reply.status(401).send({ error: 'No autorizado' });
       }
     });
+
+    // Configurar WebSocket
+    setupWebSocket(fastify);
+
+    // Registrar rutas
+    await fastify.register(authRoutes, { prefix: '/api/auth' });
+    await fastify.register(apiRoutes, { prefix: '/api' });
+    await fastify.register(otaRoutes, { prefix: '/api/ota' });
 
     // Iniciar servidor
     await fastify.listen({ port: PORT, host: '0.0.0.0' });
