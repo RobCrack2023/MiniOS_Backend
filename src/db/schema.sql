@@ -108,4 +108,4 @@ CREATE INDEX IF NOT EXISTS idx_ota_history_device ON ota_history(device_id);
 
 -- Usuario admin por defecto (password: admin123)
 INSERT OR IGNORE INTO users (username, password)
-VALUES ('admin', '$2b$10$rQZQzK6.x5K5K5K5K5K5KeK5K5K5K5K5K5K5K5K5K5K5K5K5K5K5K');
+VALUES ('admin', '$2b$10$8K1p/a5VZ9yqRZUCK3Q6/.u7G8qXmLU1.1TQV7CvQLlq.x7xGfXJe');
