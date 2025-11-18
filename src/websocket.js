@@ -144,18 +144,34 @@ function handleDeviceData(socket, data) {
   const device = db.getDeviceByMac(mac_address);
   if (!device) return;
 
-  // Guardar datos de sensores
+  // Guardar datos de sensores DHT (nuevo formato con array)
+  if (payload.dht && Array.isArray(payload.dht)) {
+    payload.dht.forEach(sensor => {
+      if (sensor.temperature !== undefined) {
+        db.saveSensorData(device.id, 'temperature', sensor.temperature, sensor.pin);
+      }
+      if (sensor.humidity !== undefined) {
+        db.saveSensorData(device.id, 'humidity', sensor.humidity, sensor.pin);
+      }
+    });
+  }
+  // Compatibilidad con formato antiguo
   if (payload.temperature !== undefined) {
     db.saveSensorData(device.id, 'temperature', payload.temperature);
   }
   if (payload.humidity !== undefined) {
     db.saveSensorData(device.id, 'humidity', payload.humidity);
   }
+
+  // Guardar datos GPIO (con soporte para analog flag)
   if (payload.gpio) {
     payload.gpio.forEach(gpio => {
-      db.saveSensorData(device.id, 'gpio', gpio.value, gpio.pin);
+      const sensorType = gpio.analog ? 'analog' : 'gpio';
+      db.saveSensorData(device.id, sensorType, gpio.value, gpio.pin);
     });
   }
+
+  // Compatibilidad con formato antiguo (array analog separado)
   if (payload.analog) {
     payload.analog.forEach(analog => {
       db.saveSensorData(device.id, 'analog', analog.value, analog.pin);
