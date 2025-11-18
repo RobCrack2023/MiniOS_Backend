@@ -1,4 +1,5 @@
 const Database = require('better-sqlite3');
+const bcrypt = require('bcrypt');
 const fs = require('fs');
 const path = require('path');
 
@@ -17,6 +18,14 @@ function initDatabase() {
   db.exec(schema);
 
   console.log('📦 Base de datos inicializada');
+
+  // Crear usuario admin por defecto si no hay usuarios
+  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
+  if (userCount.count === 0) {
+    const hashedPassword = bcrypt.hashSync('admin123', 10);
+    db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run('admin', hashedPassword);
+    console.log('👤 Usuario admin creado (admin/admin123)');
+  }
 
   return db;
 }
