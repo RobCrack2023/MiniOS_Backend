@@ -15,7 +15,7 @@ const apiRoutes = require('./routes/api');
 const authRoutes = require('./routes/auth');
 const otaRoutes = require('./routes/ota');
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'minios-secret-key-change-in-production';
 
 async function start() {

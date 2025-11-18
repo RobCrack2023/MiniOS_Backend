@@ -25,14 +25,14 @@ npm start
 Variables de entorno (opcional):
 
 ```bash
-PORT=3000
+PORT=3001
 JWT_SECRET=tu-clave-secreta-aqui
 ```
 
 ## Primer Uso
 
 1. Iniciar el servidor: `npm start`
-2. Abrir en navegador: `http://localhost:3000`
+2. Abrir en navegador: `http://localhost:3001`
 3. Usuario por defecto: `admin` / `admin123`
 4. **Cambiar la contraseña inmediatamente**
 
@@ -165,7 +165,7 @@ server {
     server_name tu-dominio.com;
 
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:3001;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
