@@ -1,0 +1,5 @@
+node_modules/
+*.db
+firmware/*.bin
+.env
+.DS_Store

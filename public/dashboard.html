@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MiniOS - Dashboard</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body x-data="app()" x-init="init()">
+
+    <div class="dashboard">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <h2>MiniOS</h2>
+            <nav>
+                <a href="#" :class="{ active: currentView === 'devices' }" @click.prevent="currentView = 'devices'">
+                    Dispositivos
+                </a>
+                <a href="#" :class="{ active: currentView === 'firmware' }" @click.prevent="currentView = 'firmware'">
+                    Firmware / OTA
+                </a>
+                <a href="#" :class="{ active: currentView === 'settings' }" @click.prevent="currentView = 'settings'">
+                    Configuración
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="header">
+                <h1 x-text="viewTitle"></h1>
+                <div class="user-info">
+                    <span x-text="user?.username"></span>
+                    <button class="btn btn-sm" @click="logout()">Salir</button>
+                </div>
+            </header>
+
+            <!-- Stats -->
+            <div class="stats-grid" x-show="currentView === 'devices'">
+                <div class="stat-card">
+                    <h3>Total Dispositivos</h3>
+                    <div class="value" x-text="devices.length"></div>
+                </div>
+                <div class="stat-card online">
+                    <h3>En Línea</h3>
+                    <div class="value" x-text="devices.filter(d => d.is_online).length"></div>
+                </div>
+                <div class="stat-card offline">
+                    <h3>Desconectados</h3>
+                    <div class="value" x-text="devices.filter(d => !d.is_online).length"></div>
+                </div>
+            </div>
+
+            <!-- Devices View -->
+            <div x-show="currentView === 'devices'">
+                <div class="device-grid">
+                    <template x-for="device in devices" :key="device.id">
+                        <div class="device-card">
+                            <div class="device-header">
+                                <h3 x-text="device.name"></h3>
+                                <div class="status" :class="{ online: device.is_online }"></div>
+                            </div>
+                            <div class="device-body">
+                                <div class="device-info">
+                                    <p><strong>MAC:</strong> <span x-text="device.mac_address"></span></p>
+                                    <p><strong>IP:</strong> <span x-text="device.ip_address || 'N/A'"></span></p>
+                                    <p><strong>Firmware:</strong> <span x-text="device.firmware_version || 'N/A'"></span></p>
+                                </div>
+
+                                <div class="device-sensors" x-show="deviceData[device.mac_address]">
+                                    <div class="sensor">
+                                        <div class="label">Temperatura</div>
+                                        <div class="value" x-text="(deviceData[device.mac_address]?.temperature || '--') + '°C'"></div>
+                                    </div>
+                                    <div class="sensor">
+                                        <div class="label">Humedad</div>
+                                        <div class="value" x-text="(deviceData[device.mac_address]?.humidity || '--') + '%'"></div>
+                                    </div>
+                                </div>
+
+                                <div class="device-actions">
+                                    <button class="btn btn-primary btn-sm" @click="openDeviceModal(device)">
+                                        Configurar
+                                    </button>
+                                    <button class="btn btn-danger btn-sm" @click="rebootDevice(device)" :disabled="!device.is_online">
+                                        Reiniciar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <p x-show="devices.length === 0" class="text-gray mt-20">
+                    No hay dispositivos registrados. Los dispositivos aparecerán automáticamente cuando se conecten.
+                </p>
+            </div>
+
+            <!-- Firmware View -->
+            <div x-show="currentView === 'firmware'">
+                <div class="mb-20">
+                    <h3>Subir Nuevo Firmware</h3>
+                    <form @submit.prevent="uploadFirmware()" class="mt-20">
+                        <div class="form-group">
+                            <label>Versión</label>
+                            <input type="text" x-model="newFirmware.version" placeholder="ej: 1.0.1" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Descripción</label>
+                            <input type="text" x-model="newFirmware.description" placeholder="Cambios en esta versión">
+                        </div>
+                        <div class="form-group">
+                            <label>Archivo .bin</label>
+                            <input type="file" @change="newFirmware.file = $event.target.files[0]" accept=".bin" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Subir Firmware</button>
+                    </form>
+                </div>
+
+                <div class="table-container mt-20">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Versión</th>
+                                <th>Descripción</th>
+                                <th>Tamaño</th>
+                                <th>Fecha</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="fw in firmwareList" :key="fw.id">
+                                <tr>
+                                    <td>
+                                        <span x-text="fw.version"></span>
+                                        <span x-show="fw.is_active" class="text-success">(activo)</span>
+                                    </td>
+                                    <td x-text="fw.description || '-'"></td>
+                                    <td x-text="formatBytes(fw.filesize)"></td>
+                                    <td x-text="formatDate(fw.uploaded_at)"></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-success" @click="activateFirmware(fw.id)" x-show="!fw.is_active">
+                                            Activar
+                                        </button>
+                                        <button class="btn btn-sm btn-primary" @click="updateAllDevices(fw.id)">
+                                            Enviar a todos
+                                        </button>
+                                        <button class="btn btn-sm btn-danger" @click="deleteFirmware(fw.id)">
+                                            Eliminar
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Settings View -->
+            <div x-show="currentView === 'settings'">
+                <div class="table-container">
+                    <div style="padding: 20px;">
+                        <h3>Cambiar Contraseña</h3>
+                        <form @submit.prevent="changePassword()" class="mt-20">
+                            <div class="form-group">
+                                <label>Contraseña Actual</label>
+                                <input type="password" x-model="passwordForm.current" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Nueva Contraseña</label>
+                                <input type="password" x-model="passwordForm.new" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Cambiar</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Device Config Modal -->
+    <div class="modal-overlay" x-show="showDeviceModal" @click.self="showDeviceModal = false" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 x-text="selectedDevice?.name"></h2>
+                <button class="modal-close" @click="showDeviceModal = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Tabs -->
+                <div class="tabs">
+                    <div class="tab" :class="{ active: deviceTab === 'info' }" @click="deviceTab = 'info'">Info</div>
+                    <div class="tab" :class="{ active: deviceTab === 'gpio' }" @click="deviceTab = 'gpio'">GPIO</div>
+                    <div class="tab" :class="{ active: deviceTab === 'dht' }" @click="deviceTab = 'dht'">DHT</div>
+                </div>
+
+                <!-- Info Tab -->
+                <div class="tab-content" :class="{ active: deviceTab === 'info' }">
+                    <div class="form-group">
+                        <label>Nombre</label>
+                        <input type="text" x-model="selectedDevice.name">
+                    </div>
+                    <div class="form-group">
+                        <label>Descripción</label>
+                        <textarea x-model="selectedDevice.description" rows="3"></textarea>
+                    </div>
+                    <button class="btn btn-primary" @click="saveDevice()">Guardar</button>
+                </div>
+
+                <!-- GPIO Tab -->
+                <div class="tab-content" :class="{ active: deviceTab === 'gpio' }">
+                    <div class="form-group">
+                        <label>Agregar GPIO</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" x-model="newGpio.pin" placeholder="Pin" style="width: 80px;">
+                            <select x-model="newGpio.mode">
+                                <option value="OUTPUT">OUTPUT</option>
+                                <option value="INPUT">INPUT</option>
+                                <option value="INPUT_PULLUP">INPUT_PULLUP</option>
+                                <option value="PWM">PWM</option>
+                            </select>
+                            <input type="text" x-model="newGpio.name" placeholder="Nombre">
+                            <button class="btn btn-success btn-sm" @click="addGpio()">+</button>
+                        </div>
+                    </div>
+
+                    <table class="mt-20">
+                        <thead>
+                            <tr>
+                                <th>Pin</th>
+                                <th>Nombre</th>
+                                <th>Modo</th>
+                                <th>Valor</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="gpio in deviceGpios" :key="gpio.pin">
+                                <tr>
+                                    <td x-text="gpio.pin"></td>
+                                    <td x-text="gpio.name"></td>
+                                    <td x-text="gpio.mode"></td>
+                                    <td>
+                                        <template x-if="gpio.mode === 'OUTPUT'">
+                                            <button class="btn btn-sm"
+                                                    :class="gpio.value ? 'btn-success' : 'btn-danger'"
+                                                    @click="toggleGpio(gpio)">
+                                                <span x-text="gpio.value ? 'ON' : 'OFF'"></span>
+                                            </button>
+                                        </template>
+                                        <template x-if="gpio.mode === 'PWM'">
+                                            <input type="range" min="0" max="255" x-model="gpio.value"
+                                                   @change="setGpioValue(gpio)">
+                                        </template>
+                                        <template x-if="gpio.mode.includes('INPUT')">
+                                            <span x-text="gpio.value"></span>
+                                        </template>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-danger btn-sm" @click="deleteGpio(gpio.pin)">X</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- DHT Tab -->
+                <div class="tab-content" :class="{ active: deviceTab === 'dht' }">
+                    <div class="form-group">
+                        <label>Agregar Sensor DHT</label>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="number" x-model="newDht.pin" placeholder="Pin" style="width: 80px;">
+                            <select x-model="newDht.sensor_type">
+                                <option value="DHT11">DHT11</option>
+                                <option value="DHT22">DHT22</option>
+                            </select>
+                            <input type="text" x-model="newDht.name" placeholder="Nombre">
+                            <button class="btn btn-success btn-sm" @click="addDht()">+</button>
+                        </div>
+                    </div>
+
+                    <table class="mt-20">
+                        <thead>
+                            <tr>
+                                <th>Pin</th>
+                                <th>Nombre</th>
+                                <th>Tipo</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="dht in deviceDhts" :key="dht.pin">
+                                <tr>
+                                    <td x-text="dht.pin"></td>
+                                    <td x-text="dht.name"></td>
+                                    <td x-text="dht.sensor_type"></td>
+                                    <td>
+                                        <button class="btn btn-danger btn-sm" @click="deleteDht(dht.pin)">X</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>

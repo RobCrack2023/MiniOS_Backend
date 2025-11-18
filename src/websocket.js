@@ -1,0 +1,279 @@
+const db = require('./db/database');
+
+// Almacenar conexiones activas
+const connections = {
+  devices: new Map(),    // MAC -> WebSocket
+  dashboards: new Set()  // WebSockets del dashboard
+};
+
+function setupWebSocket(fastify) {
+
+  // Endpoint para dispositivos ESP32
+  fastify.get('/ws/device', { websocket: true }, (connection, req) => {
+    console.log('🔌 Nueva conexión de dispositivo');
+
+    let deviceMac = null;
+
+    connection.socket.on('message', (message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        handleDeviceMessage(connection.socket, data, (mac) => {
+          deviceMac = mac;
+        });
+      } catch (err) {
+        console.error('Error parseando mensaje:', err);
+      }
+    });
+
+    connection.socket.on('close', () => {
+      if (deviceMac) {
+        connections.devices.delete(deviceMac);
+        db.updateDeviceStatus(deviceMac, false);
+        broadcastToDashboards({
+          type: 'device_offline',
+          mac_address: deviceMac
+        });
+        console.log(`📴 Dispositivo desconectado: ${deviceMac}`);
+      }
+    });
+  });
+
+  // Endpoint para dashboard web
+  fastify.get('/ws/dashboard', { websocket: true }, (connection, req) => {
+    console.log('🖥️ Nueva conexión de dashboard');
+
+    connections.dashboards.add(connection.socket);
+
+    // Enviar estado actual de todos los dispositivos
+    const devices = db.getDevices();
+    connection.socket.send(JSON.stringify({
+      type: 'init',
+      devices: devices
+    }));
+
+    connection.socket.on('message', (message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        handleDashboardMessage(connection.socket, data);
+      } catch (err) {
+        console.error('Error parseando mensaje dashboard:', err);
+      }
+    });
+
+    connection.socket.on('close', () => {
+      connections.dashboards.delete(connection.socket);
+      console.log('🖥️ Dashboard desconectado');
+    });
+  });
+}
+
+// ============================================
+// MANEJO DE MENSAJES DE DISPOSITIVOS
+// ============================================
+
+function handleDeviceMessage(socket, data, setMac) {
+  switch (data.type) {
+    case 'register':
+      handleDeviceRegister(socket, data, setMac);
+      break;
+
+    case 'data':
+      handleDeviceData(socket, data);
+      break;
+
+    case 'ota_status':
+      handleOtaStatus(socket, data);
+      break;
+
+    default:
+      console.log('Mensaje desconocido de dispositivo:', data.type);
+  }
+}
+
+function handleDeviceRegister(socket, data, setMac) {
+  const { mac_address, firmware_version, ip_address } = data;
+
+  // Buscar o crear dispositivo
+  let device = db.getDeviceByMac(mac_address);
+
+  if (!device) {
+    device = db.createDevice(mac_address);
+    console.log(`✨ Nuevo dispositivo registrado: ${mac_address}`);
+  }
+
+  // Actualizar estado
+  db.updateDevice(device.id, {
+    firmware_version,
+    ip_address,
+    is_online: true,
+    last_seen: new Date().toISOString()
+  });
+
+  // Guardar conexión
+  connections.devices.set(mac_address, socket);
+  setMac(mac_address);
+
+  // Obtener configuraciones
+  const gpioConfigs = db.getGpioConfigs(device.id);
+  const dhtConfigs = db.getDhtConfigs(device.id);
+
+  // Verificar si hay OTA pendiente
+  const pendingOta = db.getPendingOtaTasks(device.id);
+
+  // Enviar configuración al dispositivo
+  socket.send(JSON.stringify({
+    type: 'config',
+    device_id: device.id,
+    gpio: gpioConfigs,
+    dht: dhtConfigs,
+    ota: pendingOta.length > 0 ? pendingOta[0] : null
+  }));
+
+  // Notificar dashboards
+  broadcastToDashboards({
+    type: 'device_online',
+    device: db.getDeviceByMac(mac_address)
+  });
+
+  console.log(`📱 Dispositivo conectado: ${mac_address} (${ip_address})`);
+}
+
+function handleDeviceData(socket, data) {
+  const { mac_address, payload } = data;
+
+  const device = db.getDeviceByMac(mac_address);
+  if (!device) return;
+
+  // Guardar datos de sensores
+  if (payload.temperature !== undefined) {
+    db.saveSensorData(device.id, 'temperature', payload.temperature);
+  }
+  if (payload.humidity !== undefined) {
+    db.saveSensorData(device.id, 'humidity', payload.humidity);
+  }
+  if (payload.gpio) {
+    payload.gpio.forEach(gpio => {
+      db.saveSensorData(device.id, 'gpio', gpio.value, gpio.pin);
+    });
+  }
+  if (payload.analog) {
+    payload.analog.forEach(analog => {
+      db.saveSensorData(device.id, 'analog', analog.value, analog.pin);
+    });
+  }
+
+  // Actualizar last_seen
+  db.updateDeviceStatus(mac_address, true);
+
+  // Enviar a dashboards
+  broadcastToDashboards({
+    type: 'device_data',
+    mac_address,
+    device_id: device.id,
+    payload
+  });
+}
+
+function handleOtaStatus(socket, data) {
+  const { mac_address, ota_id, status, error } = data;
+
+  db.updateOtaTask(ota_id, status, error);
+
+  if (status === 'success') {
+    const device = db.getDeviceByMac(mac_address);
+    if (device) {
+      // Actualizar versión del firmware
+      const task = db.getPendingOtaTasks(device.id);
+      // La versión se actualizará cuando el dispositivo se reconecte
+    }
+  }
+
+  broadcastToDashboards({
+    type: 'ota_status',
+    mac_address,
+    ota_id,
+    status,
+    error
+  });
+}
+
+// ============================================
+// MANEJO DE MENSAJES DEL DASHBOARD
+// ============================================
+
+function handleDashboardMessage(socket, data) {
+  switch (data.type) {
+    case 'command':
+      sendCommandToDevice(data.mac_address, data.command);
+      break;
+
+    case 'get_device_data':
+      sendDeviceHistory(socket, data.device_id);
+      break;
+
+    default:
+      console.log('Mensaje desconocido de dashboard:', data.type);
+  }
+}
+
+// ============================================
+// FUNCIONES DE COMUNICACIÓN
+// ============================================
+
+function sendToDevice(macAddress, message) {
+  const socket = connections.devices.get(macAddress);
+  if (socket && socket.readyState === 1) {
+    socket.send(JSON.stringify(message));
+    return true;
+  }
+  return false;
+}
+
+function sendCommandToDevice(macAddress, command) {
+  return sendToDevice(macAddress, {
+    type: 'command',
+    ...command
+  });
+}
+
+function broadcastToDashboards(message) {
+  const messageStr = JSON.stringify(message);
+  connections.dashboards.forEach(socket => {
+    if (socket.readyState === 1) {
+      socket.send(messageStr);
+    }
+  });
+}
+
+function broadcastToDevices(message) {
+  const messageStr = JSON.stringify(message);
+  connections.devices.forEach(socket => {
+    if (socket.readyState === 1) {
+      socket.send(messageStr);
+    }
+  });
+}
+
+function sendDeviceHistory(socket, deviceId) {
+  const data = {
+    temperature: db.getSensorData(deviceId, 'temperature', 50),
+    humidity: db.getSensorData(deviceId, 'humidity', 50),
+    gpio: db.getSensorData(deviceId, 'gpio', 50)
+  };
+
+  socket.send(JSON.stringify({
+    type: 'device_history',
+    device_id: deviceId,
+    data
+  }));
+}
+
+// Exportar para uso en rutas
+module.exports = {
+  setupWebSocket,
+  sendToDevice,
+  sendCommandToDevice,
+  broadcastToDashboards,
+  broadcastToDevices,
+  connections
+};
