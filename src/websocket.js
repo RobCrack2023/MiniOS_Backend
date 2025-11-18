@@ -91,7 +91,15 @@ function handleDeviceMessage(socket, data, setMac) {
 }
 
 function handleDeviceRegister(socket, data, setMac) {
-  const { mac_address, firmware_version, ip_address } = data;
+  const { firmware_version, ip_address } = data;
+
+  // Normalizar MAC address (mayúsculas, sin espacios)
+  const mac_address = data.mac_address ? data.mac_address.toUpperCase().trim() : '';
+
+  if (!mac_address) {
+    console.error('❌ Registro sin MAC address');
+    return;
+  }
 
   // Buscar o crear dispositivo
   let device = db.getDeviceByMac(mac_address);
@@ -139,7 +147,10 @@ function handleDeviceRegister(socket, data, setMac) {
 }
 
 function handleDeviceData(socket, data) {
-  const { mac_address, payload } = data;
+  const { payload } = data;
+
+  // Normalizar MAC address
+  const mac_address = data.mac_address ? data.mac_address.toUpperCase().trim() : '';
 
   const device = db.getDeviceByMac(mac_address);
   if (!device) return;
@@ -191,7 +202,10 @@ function handleDeviceData(socket, data) {
 }
 
 function handleOtaStatus(socket, data) {
-  const { mac_address, ota_id, status, error } = data;
+  const { ota_id, status, error } = data;
+
+  // Normalizar MAC address
+  const mac_address = data.mac_address ? data.mac_address.toUpperCase().trim() : '';
 
   db.updateOtaTask(ota_id, status, error);
 
