@@ -194,12 +194,19 @@ function handleDeviceData(socket, data) {
   // Actualizar last_seen
   db.updateDeviceStatus(mac_address, true);
 
+  // Preparar payload para dashboard (extraer temperatura/humedad del primer sensor DHT)
+  const dashboardPayload = { ...payload };
+  if (payload.dht && payload.dht.length > 0) {
+    dashboardPayload.temperature = payload.dht[0].temperature;
+    dashboardPayload.humidity = payload.dht[0].humidity;
+  }
+
   // Enviar a dashboards
   broadcastToDashboards({
     type: 'device_data',
     mac_address,
     device_id: device.id,
-    payload
+    payload: dashboardPayload
   });
 }
 
