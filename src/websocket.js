@@ -157,7 +157,9 @@ function handleDeviceData(socket, data) {
 
   // Guardar datos de sensores DHT (nuevo formato con array)
   if (payload.dht && Array.isArray(payload.dht)) {
+    console.log(`📊 Recibidos ${payload.dht.length} sensores DHT de ${mac_address}`);
     payload.dht.forEach(sensor => {
+      console.log(`   DHT pin:${sensor.pin} temp:${sensor.temperature} hum:${sensor.humidity}`);
       if (sensor.temperature !== undefined) {
         db.saveSensorData(device.id, 'temperature', sensor.temperature, sensor.pin);
       }
