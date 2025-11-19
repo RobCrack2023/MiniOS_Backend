@@ -311,6 +311,40 @@ body {
     font-weight: bold;
 }
 
+.device-card .sensor-group {
+    grid-column: 1 / -1;
+    background: var(--light);
+    padding: 10px;
+    border-radius: 4px;
+    margin-bottom: 5px;
+}
+
+.device-card .sensor-group .sensor-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dark);
+    margin-bottom: 8px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid #ddd;
+}
+
+.device-card .sensor-group .sensor-values {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.device-card .sensor-group .sensor {
+    background: white;
+    padding: 8px;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.device-card .sensor-group .sensor .value {
+    font-size: 16px;
+}
+
 .device-card .device-actions {
     display: flex;
     gap: 10px;

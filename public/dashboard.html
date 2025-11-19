@@ -71,14 +71,39 @@
                                 </div>
 
                                 <div class="device-sensors" x-show="deviceData[device.mac_address]">
-                                    <div class="sensor">
-                                        <div class="label">Temperatura</div>
-                                        <div class="value" x-text="(deviceData[device.mac_address]?.temperature || '--') + '°C'"></div>
-                                    </div>
-                                    <div class="sensor">
-                                        <div class="label">Humedad</div>
-                                        <div class="value" x-text="(deviceData[device.mac_address]?.humidity || '--') + '%'"></div>
-                                    </div>
+                                    <!-- Mostrar todos los sensores DHT -->
+                                    <template x-if="deviceData[device.mac_address]?.dht && deviceData[device.mac_address].dht.length > 0">
+                                        <template x-for="(sensor, index) in deviceData[device.mac_address].dht" :key="index">
+                                            <div class="sensor-group">
+                                                <div class="sensor-name" x-text="sensor.name || ('DHT ' + sensor.pin)"></div>
+                                                <div class="sensor-values">
+                                                    <div class="sensor">
+                                                        <div class="label">Temp</div>
+                                                        <div class="value" x-text="(sensor.temperature?.toFixed(1) || '--') + '°C'"></div>
+                                                    </div>
+                                                    <div class="sensor">
+                                                        <div class="label">Hum</div>
+                                                        <div class="value" x-text="(sensor.humidity?.toFixed(0) || '--') + '%'"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </template>
+                                    <!-- Fallback para formato antiguo -->
+                                    <template x-if="!deviceData[device.mac_address]?.dht && deviceData[device.mac_address]?.temperature">
+                                        <div class="sensor-group">
+                                            <div class="sensor-values">
+                                                <div class="sensor">
+                                                    <div class="label">Temperatura</div>
+                                                    <div class="value" x-text="(deviceData[device.mac_address]?.temperature || '--') + '°C'"></div>
+                                                </div>
+                                                <div class="sensor">
+                                                    <div class="label">Humedad</div>
+                                                    <div class="value" x-text="(deviceData[device.mac_address]?.humidity || '--') + '%'"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
                                 </div>
 
                                 <div class="device-actions">
