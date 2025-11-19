@@ -125,8 +125,8 @@ function getGpioConfigs(deviceId) {
 
 function setGpioConfig(deviceId, config) {
   const stmt = db.prepare(`
-    INSERT INTO gpio_configs (device_id, pin, mode, name, value, pwm_frequency, loop_enabled, loop_interval, formula_enabled, formula_type, formula_min, formula_max, active)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO gpio_configs (device_id, pin, mode, name, value, pwm_frequency, loop_enabled, loop_interval, formula_enabled, formula_type, formula_min, formula_max, unit, active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(device_id, pin) DO UPDATE SET
       mode = excluded.mode,
       name = excluded.name,
@@ -138,6 +138,7 @@ function setGpioConfig(deviceId, config) {
       formula_type = excluded.formula_type,
       formula_min = excluded.formula_min,
       formula_max = excluded.formula_max,
+      unit = excluded.unit,
       active = excluded.active
   `);
 
@@ -154,6 +155,7 @@ function setGpioConfig(deviceId, config) {
     config.formula_type || null,
     config.formula_min || 0,
     config.formula_max || 100,
+    config.unit || '',
     config.active !== false ? 1 : 0
   );
 }

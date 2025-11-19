@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS gpio_configs (
     formula_type TEXT,
     formula_min REAL DEFAULT 0,
     formula_max REAL DEFAULT 100,
+    unit TEXT DEFAULT '',
     active INTEGER DEFAULT 1,
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
     UNIQUE(device_id, pin)
