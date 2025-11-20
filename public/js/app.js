@@ -134,10 +134,11 @@ function app() {
                         ...this.deviceData[data.mac_address],
                         ...data.payload
                     };
-                    // Marcar dispositivo como online cuando envía datos
+                    // Marcar dispositivo como online y actualizar timestamp
                     const deviceSending = this.devices.find(d => d.mac_address === data.mac_address);
                     if (deviceSending) {
                         deviceSending.is_online = true;
+                        deviceSending.last_seen = new Date().toISOString();
                     }
                     break;
 
