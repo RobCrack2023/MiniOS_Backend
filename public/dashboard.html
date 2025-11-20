@@ -68,6 +68,7 @@
                                     <p><strong>MAC:</strong> <span x-text="device.mac_address"></span></p>
                                     <p><strong>IP:</strong> <span x-text="device.ip_address || 'N/A'"></span></p>
                                     <p><strong>Firmware:</strong> <span x-text="device.firmware_version || 'N/A'"></span></p>
+                                    <p><strong>Última conexión:</strong> <span x-text="device.last_seen ? formatDate(device.last_seen) : 'N/A'"></span></p>
                                 </div>
 
                                 <div class="device-sensors" x-show="deviceData[device.mac_address]">
