@@ -28,7 +28,10 @@ function setupWebSocket(fastify) {
     connection.socket.on('close', () => {
       if (deviceMac) {
         connections.devices.delete(deviceMac);
-        db.updateDeviceStatus(deviceMac, false);
+        // Obtener dispositivo para preservar la IP al desconectar
+        const device = db.getDeviceByMac(deviceMac);
+        const lastIp = device ? device.ip_address : null;
+        db.updateDeviceStatus(deviceMac, false, lastIp);
         broadcastToDashboards({
           type: 'device_offline',
           mac_address: deviceMac
@@ -191,8 +194,8 @@ function handleDeviceData(socket, data) {
     });
   }
 
-  // Actualizar last_seen
-  db.updateDeviceStatus(mac_address, true);
+  // Actualizar last_seen (preservando la IP existente)
+  db.updateDeviceStatus(mac_address, true, device.ip_address);
 
   // Preparar payload para dashboard (extraer temperatura/humedad del primer sensor DHT)
   const dashboardPayload = { ...payload };
