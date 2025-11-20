@@ -134,6 +134,11 @@ function app() {
                         ...this.deviceData[data.mac_address],
                         ...data.payload
                     };
+                    // Marcar dispositivo como online cuando envía datos
+                    const deviceSending = this.devices.find(d => d.mac_address === data.mac_address);
+                    if (deviceSending) {
+                        deviceSending.is_online = true;
+                    }
                     break;
 
                 case 'ota_status':
