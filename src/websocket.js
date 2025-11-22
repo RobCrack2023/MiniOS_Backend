@@ -127,6 +127,7 @@ function handleDeviceRegister(socket, data, setMac) {
   // Obtener configuraciones
   const gpioConfigs = db.getGpioConfigs(device.id);
   const dhtConfigs = db.getDhtConfigs(device.id);
+  const ultrasonicConfigs = db.getUltrasonicConfigs(device.id);
 
   // Verificar si hay OTA pendiente
   const pendingOta = db.getPendingOtaTasks(device.id);
@@ -137,6 +138,7 @@ function handleDeviceRegister(socket, data, setMac) {
     device_id: device.id,
     gpio: gpioConfigs,
     dht: dhtConfigs,
+    ultrasonic: ultrasonicConfigs,
     ota: pendingOta.length > 0 ? pendingOta[0] : null
   }));
 
@@ -191,6 +193,50 @@ function handleDeviceData(socket, data) {
   if (payload.analog) {
     payload.analog.forEach(analog => {
       db.saveSensorData(device.id, 'analog', analog.value, analog.pin);
+    });
+  }
+
+  // Guardar datos ultrasónicos y analizar detección
+  if (payload.ultrasonic && Array.isArray(payload.ultrasonic)) {
+    payload.ultrasonic.forEach(sensor => {
+      // Guardar lectura de distancia
+      db.saveSensorData(device.id, 'distance', sensor.distance, sensor.trig_pin);
+
+      // Obtener configuración del sensor
+      const configs = db.getUltrasonicConfigs(device.id);
+      const config = configs.find(c => c.trig_pin === sensor.trig_pin);
+
+      if (config && config.active) {
+        // Agregar lectura al buffer de análisis
+        db.addDistanceReading(device.id, config.id, sensor.distance);
+
+        // Analizar detección
+        const analysis = db.analyzeDetection(device.id, config.id, config);
+
+        if (analysis.detected && analysis.shouldTrigger) {
+          // Enviar comando al ESP32 para activar GPIO
+          sendToDevice(mac_address, {
+            type: 'command',
+            action: 'ultrasonic_trigger',
+            gpio_pin: config.trigger_gpio_pin,
+            gpio_value: config.trigger_gpio_value,
+            duration: config.trigger_duration,
+            animal_type: analysis.animalType
+          });
+
+          // Notificar a dashboards sobre la detección
+          broadcastToDashboards({
+            type: 'ultrasonic_detection',
+            device_id: device.id,
+            mac_address,
+            sensor_id: config.id,
+            detection: analysis
+          });
+        }
+
+        // Agregar análisis al payload para el dashboard
+        sensor.analysis = analysis;
+      }
     });
   }
 
@@ -300,7 +346,8 @@ function sendDeviceHistory(socket, deviceId) {
   const data = {
     temperature: db.getSensorData(deviceId, 'temperature', 50),
     humidity: db.getSensorData(deviceId, 'humidity', 50),
-    gpio: db.getSensorData(deviceId, 'gpio', 50)
+    gpio: db.getSensorData(deviceId, 'gpio', 50),
+    distance: db.getSensorData(deviceId, 'distance', 100)
   };
 
   socket.send(JSON.stringify({

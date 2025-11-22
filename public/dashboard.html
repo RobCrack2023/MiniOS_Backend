@@ -220,6 +220,7 @@
                     <div class="tab" :class="{ active: deviceTab === 'info' }" @click="deviceTab = 'info'">Info</div>
                     <div class="tab" :class="{ active: deviceTab === 'gpio' }" @click="deviceTab = 'gpio'">GPIO</div>
                     <div class="tab" :class="{ active: deviceTab === 'dht' }" @click="deviceTab = 'dht'">DHT</div>
+                    <div class="tab" :class="{ active: deviceTab === 'ultrasonic' }" @click="deviceTab = 'ultrasonic'">Ultrasonic</div>
                 </div>
 
                 <!-- Info Tab -->
@@ -330,6 +331,104 @@
                             </template>
                         </tbody>
                     </table>
+                </div>
+
+                <!-- Ultrasonic Tab -->
+                <div class="tab-content" :class="{ active: deviceTab === 'ultrasonic' }">
+                    <!-- Radar Display -->
+                    <div class="radar-container" x-show="deviceUltrasonics.length > 0">
+                        <canvas id="radarCanvas" width="300" height="300"></canvas>
+                        <div class="radar-info">
+                            <div class="distance-display">
+                                <span class="label">Distancia:</span>
+                                <span class="value" x-text="(currentDistance || '--') + ' cm'"></span>
+                            </div>
+                            <div class="detection-status" :class="{ detected: isObjectDetected }">
+                                <span x-text="isObjectDetected ? (detectedAnimal ? detectedAnimal.toUpperCase() : 'DETECTADO') : 'Sin detección'"></span>
+                            </div>
+                            <div class="speed-display" x-show="currentSpeed > 0">
+                                <span class="label">Velocidad:</span>
+                                <span class="value" x-text="currentSpeed + ' cm/s'"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Add Ultrasonic Form -->
+                    <div class="form-group mt-20">
+                        <label>Agregar Sensor HC-SR04</label>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <input type="number" x-model="newUltrasonic.trig_pin" placeholder="TRIG Pin" style="width: 90px;">
+                            <input type="number" x-model="newUltrasonic.echo_pin" placeholder="ECHO Pin" style="width: 90px;">
+                            <input type="text" x-model="newUltrasonic.name" placeholder="Nombre" style="width: 120px;">
+                            <button class="btn btn-success btn-sm" @click="addUltrasonic()">+</button>
+                        </div>
+                    </div>
+
+                    <!-- Ultrasonic Sensors List -->
+                    <template x-for="ultrasonic in deviceUltrasonics" :key="ultrasonic.id">
+                        <div class="ultrasonic-card mt-20">
+                            <div class="ultrasonic-header">
+                                <h4 x-text="ultrasonic.name"></h4>
+                                <button class="btn btn-danger btn-sm" @click="deleteUltrasonic(ultrasonic.id)">X</button>
+                            </div>
+                            <div class="ultrasonic-config">
+                                <div class="config-row">
+                                    <span>TRIG: <strong x-text="ultrasonic.trig_pin"></strong></span>
+                                    <span>ECHO: <strong x-text="ultrasonic.echo_pin"></strong></span>
+                                </div>
+
+                                <!-- Detection Settings -->
+                                <div class="config-section">
+                                    <h5>Detección</h5>
+                                    <div class="config-row">
+                                        <label>
+                                            <input type="checkbox" x-model="ultrasonic.detection_enabled" @change="updateUltrasonic(ultrasonic)">
+                                            Habilitar detección
+                                        </label>
+                                    </div>
+                                    <div class="config-row">
+                                        <label>Distancia de activación (cm):</label>
+                                        <input type="number" x-model="ultrasonic.trigger_distance" @change="updateUltrasonic(ultrasonic)" style="width: 80px;">
+                                    </div>
+                                    <div class="config-row">
+                                        <label>GPIO a activar:</label>
+                                        <input type="number" x-model="ultrasonic.trigger_gpio_pin" @change="updateUltrasonic(ultrasonic)" style="width: 80px;">
+                                    </div>
+                                    <div class="config-row">
+                                        <label>Valor al detectar:</label>
+                                        <select x-model="ultrasonic.trigger_gpio_value" @change="updateUltrasonic(ultrasonic)">
+                                            <option value="1">HIGH (1)</option>
+                                            <option value="0">LOW (0)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Smart Detection -->
+                                <div class="config-section">
+                                    <h5>Detección Inteligente</h5>
+                                    <div class="config-row">
+                                        <label>
+                                            <input type="checkbox" x-model="ultrasonic.smart_detection_enabled" @change="updateUltrasonic(ultrasonic)">
+                                            Habilitar detección inteligente
+                                        </label>
+                                    </div>
+                                    <div class="config-row" x-show="ultrasonic.smart_detection_enabled">
+                                        <label>Detectar:</label>
+                                        <select x-model="ultrasonic.animal_type" @change="updateUltrasonic(ultrasonic)">
+                                            <option value="any">Cualquiera</option>
+                                            <option value="cat">Solo Gatos</option>
+                                            <option value="mouse">Solo Ratones</option>
+                                            <option value="both">Gatos y Ratones</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <p x-show="deviceUltrasonics.length === 0" class="text-gray mt-20">
+                        No hay sensores ultrasónicos configurados.
+                    </p>
                 </div>
             </div>
         </div>

@@ -312,6 +312,175 @@ function createUser(username, hashedPassword) {
   return stmt.run(username, hashedPassword);
 }
 
+// ============================================
+// ULTRASONIC CONFIGS
+// ============================================
+
+function getUltrasonicConfigs(deviceId) {
+  return db.prepare('SELECT * FROM ultrasonic_configs WHERE device_id = ? ORDER BY id').all(deviceId);
+}
+
+function getUltrasonicConfigById(id) {
+  return db.prepare('SELECT * FROM ultrasonic_configs WHERE id = ?').get(id);
+}
+
+function setUltrasonicConfig(deviceId, config) {
+  const stmt = db.prepare(`
+    INSERT INTO ultrasonic_configs (
+      device_id, name, trig_pin, echo_pin, max_distance, read_interval,
+      detection_enabled, trigger_distance, trigger_gpio_pin, trigger_gpio_value, trigger_duration,
+      smart_detection_enabled, animal_type, mouse_max_speed, mouse_max_duration, cat_min_duration, active
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(device_id, trig_pin, echo_pin) DO UPDATE SET
+      name = excluded.name,
+      max_distance = excluded.max_distance,
+      read_interval = excluded.read_interval,
+      detection_enabled = excluded.detection_enabled,
+      trigger_distance = excluded.trigger_distance,
+      trigger_gpio_pin = excluded.trigger_gpio_pin,
+      trigger_gpio_value = excluded.trigger_gpio_value,
+      trigger_duration = excluded.trigger_duration,
+      smart_detection_enabled = excluded.smart_detection_enabled,
+      animal_type = excluded.animal_type,
+      mouse_max_speed = excluded.mouse_max_speed,
+      mouse_max_duration = excluded.mouse_max_duration,
+      cat_min_duration = excluded.cat_min_duration,
+      active = excluded.active
+  `);
+
+  return stmt.run(
+    deviceId,
+    config.name || 'Sensor Ultrasónico',
+    config.trig_pin,
+    config.echo_pin,
+    config.max_distance || 400,
+    config.read_interval || 100,
+    config.detection_enabled !== false ? 1 : 0,
+    config.trigger_distance || 50,
+    config.trigger_gpio_pin || null,
+    config.trigger_gpio_value !== undefined ? config.trigger_gpio_value : 1,
+    config.trigger_duration || 1000,
+    config.smart_detection_enabled ? 1 : 0,
+    config.animal_type || 'any',
+    config.mouse_max_speed || 100,
+    config.mouse_max_duration || 2000,
+    config.cat_min_duration || 2000,
+    config.active !== false ? 1 : 0
+  );
+}
+
+function deleteUltrasonicConfig(deviceId, id) {
+  return db.prepare('DELETE FROM ultrasonic_configs WHERE device_id = ? AND id = ?').run(deviceId, id);
+}
+
+// ============================================
+// DETECCIÓN DE ANIMALES (análisis de patrones)
+// ============================================
+
+// Buffer temporal para análisis de patrones (en memoria)
+const detectionBuffers = new Map();
+
+function addDistanceReading(deviceId, sensorId, distance) {
+  const key = `${deviceId}_${sensorId}`;
+  if (!detectionBuffers.has(key)) {
+    detectionBuffers.set(key, {
+      readings: [],
+      lastDetection: null,
+      detectionStart: null
+    });
+  }
+
+  const buffer = detectionBuffers.get(key);
+  const now = Date.now();
+
+  // Mantener solo últimos 5 segundos de lecturas
+  buffer.readings = buffer.readings.filter(r => now - r.time < 5000);
+  buffer.readings.push({ distance, time: now });
+
+  return buffer;
+}
+
+function analyzeDetection(deviceId, sensorId, config) {
+  const key = `${deviceId}_${sensorId}`;
+  const buffer = detectionBuffers.get(key);
+
+  if (!buffer || buffer.readings.length < 3) {
+    return { detected: false };
+  }
+
+  const readings = buffer.readings;
+  const triggerDistance = config.trigger_distance;
+  const now = Date.now();
+
+  // Verificar si hay objeto dentro del rango
+  const inRange = readings.filter(r => r.distance <= triggerDistance);
+  if (inRange.length === 0) {
+    // Objeto salió del rango
+    if (buffer.detectionStart) {
+      const duration = now - buffer.detectionStart;
+      buffer.detectionStart = null;
+      buffer.lastDetection = { endTime: now, duration };
+    }
+    return { detected: false };
+  }
+
+  // Objeto detectado
+  if (!buffer.detectionStart) {
+    buffer.detectionStart = inRange[0].time;
+  }
+
+  const duration = now - buffer.detectionStart;
+
+  // Calcular velocidad (cambio de distancia por tiempo)
+  let speed = 0;
+  if (readings.length >= 2) {
+    const recent = readings.slice(-5);
+    let totalChange = 0;
+    for (let i = 1; i < recent.length; i++) {
+      totalChange += Math.abs(recent[i].distance - recent[i-1].distance);
+    }
+    const timeSpan = (recent[recent.length-1].time - recent[0].time) / 1000; // segundos
+    speed = timeSpan > 0 ? totalChange / timeSpan : 0; // cm/s
+  }
+
+  // Clasificar animal si smart_detection está habilitado
+  let animalType = 'unknown';
+  if (config.smart_detection_enabled) {
+    if (speed > config.mouse_max_speed || duration < config.mouse_max_duration) {
+      animalType = 'mouse';
+    } else if (duration >= config.cat_min_duration) {
+      animalType = 'cat';
+    }
+  }
+
+  return {
+    detected: true,
+    distance: readings[readings.length - 1].distance,
+    duration,
+    speed: Math.round(speed),
+    animalType,
+    shouldTrigger: shouldTriggerGpio(config, animalType)
+  };
+}
+
+function shouldTriggerGpio(config, detectedAnimal) {
+  if (!config.detection_enabled) return false;
+  if (!config.trigger_gpio_pin) return false;
+
+  if (!config.smart_detection_enabled) return true;
+
+  const targetAnimal = config.animal_type;
+  if (targetAnimal === 'any') return true;
+  if (targetAnimal === 'both') return detectedAnimal === 'cat' || detectedAnimal === 'mouse';
+  return targetAnimal === detectedAnimal;
+}
+
+function clearDetectionBuffer(deviceId, sensorId) {
+  const key = `${deviceId}_${sensorId}`;
+  detectionBuffers.delete(key);
+}
+
 module.exports = {
   initDatabase,
   getDatabase,
@@ -348,5 +517,14 @@ module.exports = {
   getPendingOtaTasks,
   // Users
   getUserByUsername,
-  createUser
+  createUser,
+  // Ultrasonic
+  getUltrasonicConfigs,
+  getUltrasonicConfigById,
+  setUltrasonicConfig,
+  deleteUltrasonicConfig,
+  // Detection Analysis
+  addDistanceReading,
+  analyzeDetection,
+  clearDetectionBuffer
 };

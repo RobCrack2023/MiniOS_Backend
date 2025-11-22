@@ -26,11 +26,13 @@ async function apiRoutes(fastify, options) {
     // Incluir configuraciones
     const gpioConfigs = db.getGpioConfigs(device.id);
     const dhtConfigs = db.getDhtConfigs(device.id);
+    const ultrasonicConfigs = db.getUltrasonicConfigs(device.id);
 
     return {
       device,
       gpio: gpioConfigs,
-      dht: dhtConfigs
+      dht: dhtConfigs,
+      ultrasonic: ultrasonicConfigs
     };
   });
 
@@ -173,6 +175,63 @@ async function apiRoutes(fastify, options) {
     sendCommandToDevice(device.mac_address, {
       action: 'remove_dht',
       pin: parseInt(pin)
+    });
+
+    return { success: true };
+  });
+
+  // ============================================
+  // ULTRASONIC (HC-SR04)
+  // ============================================
+
+  // Obtener configuración de sensores ultrasónicos
+  fastify.get('/devices/:id/ultrasonic', async (request, reply) => {
+    const configs = db.getUltrasonicConfigs(request.params.id);
+    return { ultrasonic: configs };
+  });
+
+  // Configurar sensor ultrasónico
+  fastify.post('/devices/:id/ultrasonic', async (request, reply) => {
+    const { id } = request.params;
+    const device = db.getDeviceById(id);
+
+    if (!device) {
+      return reply.status(404).send({ error: 'Dispositivo no encontrado' });
+    }
+
+    // Validar pines requeridos
+    if (!request.body.trig_pin || !request.body.echo_pin) {
+      return reply.status(400).send({ error: 'Se requieren trig_pin y echo_pin' });
+    }
+
+    db.setUltrasonicConfig(id, request.body);
+
+    // Enviar configuración al dispositivo
+    const configs = db.getUltrasonicConfigs(id);
+    sendCommandToDevice(device.mac_address, {
+      action: 'update_ultrasonic',
+      ultrasonic: configs
+    });
+
+    return { success: true, ultrasonic: configs };
+  });
+
+  // Eliminar sensor ultrasónico
+  fastify.delete('/devices/:id/ultrasonic/:ultrasonicId', async (request, reply) => {
+    const { id, ultrasonicId } = request.params;
+    const device = db.getDeviceById(id);
+
+    if (!device) {
+      return reply.status(404).send({ error: 'Dispositivo no encontrado' });
+    }
+
+    db.deleteUltrasonicConfig(id, parseInt(ultrasonicId));
+
+    // Enviar configuración actualizada al dispositivo
+    const configs = db.getUltrasonicConfigs(id);
+    sendCommandToDevice(device.mac_address, {
+      action: 'update_ultrasonic',
+      ultrasonic: configs
     });
 
     return { success: true };
