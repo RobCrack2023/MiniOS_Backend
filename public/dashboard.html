@@ -108,8 +108,11 @@
                                 </div>
 
                                 <div class="device-actions">
+                                    <button class="btn btn-success btn-sm" @click="openControlPanel(device)" :disabled="!device.is_online">
+                                        Panel
+                                    </button>
                                     <button class="btn btn-primary btn-sm" @click="openDeviceModal(device)">
-                                        Configurar
+                                        Config
                                     </button>
                                     <button class="btn btn-danger btn-sm" @click="rebootDevice(device)" :disabled="!device.is_online">
                                         Reiniciar
@@ -429,6 +432,138 @@
                     <p x-show="deviceUltrasonics.length === 0" class="text-gray mt-20">
                         No hay sensores ultrasónicos configurados.
                     </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Control Panel Modal -->
+    <div class="modal-overlay control-panel-overlay" x-show="showControlPanel" @click.self="closeControlPanel()" style="display: none;">
+        <div class="control-panel-modal">
+            <div class="modal-header">
+                <h2>
+                    <span class="status-dot" :class="{ online: controlPanelDevice?.is_online }"></span>
+                    <span x-text="controlPanelDevice?.name"></span>
+                </h2>
+                <button class="modal-close" @click="closeControlPanel()">&times;</button>
+            </div>
+            <div class="control-panel-body">
+                <!-- Top Row: Radar + Sensors -->
+                <div class="control-panel-grid">
+                    <!-- Radar Section -->
+                    <div class="panel-section radar-section" x-show="panelUltrasonics.length > 0">
+                        <h3>Sensor Ultrasónico</h3>
+                        <div class="radar-display">
+                            <canvas id="controlRadarCanvas" width="250" height="250"></canvas>
+                        </div>
+                        <div class="radar-stats">
+                            <div class="stat">
+                                <span class="stat-label">Distancia</span>
+                                <span class="stat-value" x-text="(panelDistance || '--') + ' cm'"></span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-label">Estado</span>
+                                <span class="stat-value detection-badge" :class="{ detected: panelDetected }">
+                                    <span x-text="panelDetected ? (panelAnimal ? panelAnimal.toUpperCase() : 'DETECTADO') : 'Libre'"></span>
+                                </span>
+                            </div>
+                            <div class="stat" x-show="panelSpeed > 0">
+                                <span class="stat-label">Velocidad</span>
+                                <span class="stat-value" x-text="panelSpeed + ' cm/s'"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DHT Sensors Section -->
+                    <div class="panel-section sensors-section" x-show="panelDhts.length > 0">
+                        <h3>Sensores Ambientales</h3>
+                        <div class="sensor-cards">
+                            <template x-for="dht in panelDhts" :key="dht.pin">
+                                <div class="sensor-card-large">
+                                    <div class="sensor-card-name" x-text="dht.name || ('DHT ' + dht.pin)"></div>
+                                    <div class="sensor-card-values">
+                                        <div class="sensor-item">
+                                            <div class="sensor-icon temp-icon">🌡️</div>
+                                            <div class="sensor-data">
+                                                <span class="sensor-value" x-text="(panelSensorData.dht?.[dht.pin]?.temperature?.toFixed(1) || '--')"></span>
+                                                <span class="sensor-unit">°C</span>
+                                            </div>
+                                        </div>
+                                        <div class="sensor-item">
+                                            <div class="sensor-icon hum-icon">💧</div>
+                                            <div class="sensor-data">
+                                                <span class="sensor-value" x-text="(panelSensorData.dht?.[dht.pin]?.humidity?.toFixed(0) || '--')"></span>
+                                                <span class="sensor-unit">%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GPIO Controls Section -->
+                <div class="panel-section gpio-section" x-show="panelGpios.length > 0">
+                    <h3>Control de GPIOs</h3>
+                    <div class="gpio-controls-grid">
+                        <template x-for="gpio in panelGpios" :key="gpio.pin">
+                            <div class="gpio-control-card" :class="{ 'gpio-input': gpio.mode.includes('INPUT') }">
+                                <div class="gpio-control-header">
+                                    <span class="gpio-name" x-text="gpio.name || ('GPIO ' + gpio.pin)"></span>
+                                    <span class="gpio-pin">Pin <span x-text="gpio.pin"></span></span>
+                                </div>
+                                <div class="gpio-control-body">
+                                    <!-- OUTPUT: Switch Toggle -->
+                                    <template x-if="gpio.mode === 'OUTPUT'">
+                                        <div class="switch-container">
+                                            <label class="switch">
+                                                <input type="checkbox" :checked="gpio.value == 1" @change="togglePanelGpio(gpio)">
+                                                <span class="slider round"></span>
+                                            </label>
+                                            <span class="switch-label" x-text="gpio.value ? 'ON' : 'OFF'" :class="{ on: gpio.value }"></span>
+                                        </div>
+                                    </template>
+                                    <!-- PWM: Slider -->
+                                    <template x-if="gpio.mode === 'PWM'">
+                                        <div class="pwm-container">
+                                            <input type="range" min="0" max="255" x-model="gpio.value" @change="setPanelGpioValue(gpio)" class="pwm-slider">
+                                            <div class="pwm-value">
+                                                <span x-text="gpio.value"></span>
+                                                <span class="pwm-percent" x-text="'(' + Math.round(gpio.value / 255 * 100) + '%)'"></span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <!-- INPUT: Read Only -->
+                                    <template x-if="gpio.mode.includes('INPUT')">
+                                        <div class="input-display">
+                                            <template x-if="gpio.isAnalog">
+                                                <div class="analog-display">
+                                                    <div class="analog-bar">
+                                                        <div class="analog-fill" :style="'width: ' + (gpio.value / 4095 * 100) + '%'"></div>
+                                                    </div>
+                                                    <span class="analog-value" x-text="gpio.value"></span>
+                                                </div>
+                                            </template>
+                                            <template x-if="!gpio.isAnalog">
+                                                <div class="digital-display" :class="{ high: gpio.value }">
+                                                    <span x-text="gpio.value ? 'HIGH' : 'LOW'"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Empty State -->
+                <div class="panel-empty" x-show="panelGpios.length === 0 && panelDhts.length === 0 && panelUltrasonics.length === 0">
+                    <p>No hay sensores ni GPIOs configurados.</p>
+                    <button class="btn btn-primary" @click="closeControlPanel(); openDeviceModal(controlPanelDevice)">
+                        Configurar dispositivo
+                    </button>
                 </div>
             </div>
         </div>

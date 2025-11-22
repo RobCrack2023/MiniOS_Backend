@@ -33,6 +33,22 @@ function app() {
         radarAngle: 0,
         radarAnimationId: null,
 
+        // Control Panel
+        showControlPanel: false,
+        controlPanelDevice: null,
+        panelGpios: [],
+        panelDhts: [],
+        panelUltrasonics: [],
+        panelSensorData: {},
+        panelDistance: null,
+        panelDetected: false,
+        panelAnimal: null,
+        panelSpeed: 0,
+        panelRadarCanvas: null,
+        panelRadarCtx: null,
+        panelRadarAngle: 0,
+        panelRadarAnimationId: null,
+
         // Forms
         newGpio: { pin: '', mode: 'OUTPUT', name: '' },
         newDht: { pin: '', sensor_type: 'DHT11', name: '' },
@@ -164,6 +180,42 @@ function app() {
                             }
                         }
                     }
+
+                    // Actualizar Panel de Control si está abierto
+                    if (this.showControlPanel && this.controlPanelDevice && data.mac_address === this.controlPanelDevice.mac_address) {
+                        // Actualizar GPIOs
+                        if (data.payload.gpio) {
+                            data.payload.gpio.forEach(g => {
+                                const gpio = this.panelGpios.find(pg => pg.pin === g.pin);
+                                if (gpio) {
+                                    gpio.value = g.value;
+                                    gpio.isAnalog = g.analog;
+                                }
+                            });
+                        }
+
+                        // Actualizar DHT
+                        if (data.payload.dht) {
+                            if (!this.panelSensorData.dht) this.panelSensorData.dht = {};
+                            data.payload.dht.forEach(d => {
+                                this.panelSensorData.dht[d.pin] = {
+                                    temperature: d.temperature,
+                                    humidity: d.humidity
+                                };
+                            });
+                        }
+
+                        // Actualizar Ultrasonic
+                        if (data.payload.ultrasonic && data.payload.ultrasonic.length > 0) {
+                            const sensor = data.payload.ultrasonic[0];
+                            this.panelDistance = sensor.distance;
+                            if (sensor.analysis) {
+                                this.panelDetected = sensor.analysis.detected;
+                                this.panelSpeed = sensor.analysis.speed || 0;
+                                this.panelAnimal = sensor.analysis.animalType;
+                            }
+                        }
+                    }
                     break;
 
                 case 'ultrasonic_detection':
@@ -223,6 +275,182 @@ function app() {
 
             await this.loadDevices();
             this.showDeviceModal = false;
+        },
+
+        // Control Panel
+        async openControlPanel(device) {
+            this.controlPanelDevice = { ...device };
+
+            // Cargar configuraciones
+            const data = await this.api(`/api/devices/${device.id}`);
+            this.panelGpios = data.gpio || [];
+            this.panelDhts = data.dht || [];
+            this.panelUltrasonics = data.ultrasonic || [];
+
+            // Reset sensor data
+            this.panelSensorData = {};
+            this.panelDistance = null;
+            this.panelDetected = false;
+            this.panelAnimal = null;
+            this.panelSpeed = 0;
+
+            // Inicializar valores de GPIO desde deviceData
+            const currentData = this.deviceData[device.mac_address];
+            if (currentData) {
+                if (currentData.gpio) {
+                    currentData.gpio.forEach(g => {
+                        const gpio = this.panelGpios.find(pg => pg.pin === g.pin);
+                        if (gpio) {
+                            gpio.value = g.value;
+                            gpio.isAnalog = g.analog;
+                        }
+                    });
+                }
+                if (currentData.dht) {
+                    this.panelSensorData.dht = {};
+                    currentData.dht.forEach(d => {
+                        this.panelSensorData.dht[d.pin] = {
+                            temperature: d.temperature,
+                            humidity: d.humidity
+                        };
+                    });
+                }
+            }
+
+            this.showControlPanel = true;
+
+            // Iniciar radar si hay sensores ultrasónicos
+            if (this.panelUltrasonics.length > 0) {
+                this.$nextTick(() => this.initPanelRadar());
+            }
+        },
+
+        closeControlPanel() {
+            this.stopPanelRadar();
+            this.showControlPanel = false;
+            this.controlPanelDevice = null;
+        },
+
+        async togglePanelGpio(gpio) {
+            const newValue = gpio.value ? 0 : 1;
+            await this.api(`/api/devices/${this.controlPanelDevice.id}/gpio/${gpio.pin}/set`, {
+                method: 'POST',
+                body: JSON.stringify({ value: newValue })
+            });
+            gpio.value = newValue;
+        },
+
+        async setPanelGpioValue(gpio) {
+            await this.api(`/api/devices/${this.controlPanelDevice.id}/gpio/${gpio.pin}/set`, {
+                method: 'POST',
+                body: JSON.stringify({ value: parseInt(gpio.value) })
+            });
+        },
+
+        // Panel Radar Animation
+        initPanelRadar() {
+            const canvas = document.getElementById('controlRadarCanvas');
+            if (!canvas) return;
+
+            this.panelRadarCanvas = canvas;
+            this.panelRadarCtx = canvas.getContext('2d');
+            this.panelRadarAngle = 0;
+
+            this.animatePanelRadar();
+        },
+
+        stopPanelRadar() {
+            if (this.panelRadarAnimationId) {
+                cancelAnimationFrame(this.panelRadarAnimationId);
+                this.panelRadarAnimationId = null;
+            }
+        },
+
+        animatePanelRadar() {
+            if (!this.panelRadarCtx || !this.panelRadarCanvas) return;
+
+            const ctx = this.panelRadarCtx;
+            const canvas = this.panelRadarCanvas;
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(centerX, centerY) - 10;
+
+            // Limpiar canvas con fade
+            ctx.fillStyle = 'rgba(15, 52, 96, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Dibujar círculos de distancia
+            ctx.strokeStyle = 'rgba(0, 255, 136, 0.3)';
+            ctx.lineWidth = 1;
+            for (let i = 1; i <= 4; i++) {
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, (radius / 4) * i, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            // Dibujar líneas de cuadrante
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY - radius);
+            ctx.lineTo(centerX, centerY + radius);
+            ctx.moveTo(centerX - radius, centerY);
+            ctx.lineTo(centerX + radius, centerY);
+            ctx.stroke();
+
+            // Dibujar línea de barrido
+            ctx.strokeStyle = '#00ff88';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.lineTo(
+                centerX + Math.cos(this.panelRadarAngle) * radius,
+                centerY + Math.sin(this.panelRadarAngle) * radius
+            );
+            ctx.stroke();
+
+            // Dibujar objeto detectado
+            if (this.panelDistance && this.panelUltrasonics.length > 0) {
+                const maxDist = this.panelUltrasonics[0].max_distance || 400;
+                const triggerDist = this.panelUltrasonics[0].trigger_distance || 50;
+                const distRatio = Math.min(this.panelDistance / maxDist, 1);
+                const objectRadius = distRatio * radius;
+
+                // Punto del objeto
+                ctx.fillStyle = this.panelDetected ? '#e74c3c' : '#00ff88';
+                ctx.beginPath();
+                ctx.arc(
+                    centerX + Math.cos(this.panelRadarAngle - 0.1) * objectRadius,
+                    centerY + Math.sin(this.panelRadarAngle - 0.1) * objectRadius,
+                    6,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+
+                // Círculo de zona de detección
+                const triggerRadius = (triggerDist / maxDist) * radius;
+                ctx.strokeStyle = 'rgba(231, 76, 60, 0.5)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, triggerRadius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // Centro
+            ctx.fillStyle = '#00ff88';
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Actualizar ángulo
+            this.panelRadarAngle += 0.03;
+            if (this.panelRadarAngle > Math.PI * 2) {
+                this.panelRadarAngle = 0;
+            }
+
+            // Continuar animación
+            this.panelRadarAnimationId = requestAnimationFrame(() => this.animatePanelRadar());
         },
 
         async rebootDevice(device) {

@@ -648,3 +648,408 @@ tr:hover {
 .animal-cat::before { content: "🐱"; }
 .animal-mouse::before { content: "🐭"; }
 .animal-unknown::before { content: "❓"; }
+
+/* ============================================
+   CONTROL PANEL
+   ============================================ */
+
+.control-panel-overlay {
+    background: rgba(0, 0, 0, 0.8);
+}
+
+.control-panel-modal {
+    background: #1a1a2e;
+    border-radius: 12px;
+    width: 95%;
+    max-width: 1000px;
+    max-height: 95vh;
+    overflow-y: auto;
+    color: #fff;
+}
+
+.control-panel-modal .modal-header {
+    background: #16213e;
+    border-bottom: 1px solid #0f3460;
+    padding: 15px 20px;
+}
+
+.control-panel-modal .modal-header h2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 18px;
+}
+
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--danger);
+    display: inline-block;
+}
+
+.status-dot.online {
+    background: var(--success);
+    box-shadow: 0 0 10px var(--success);
+}
+
+.control-panel-body {
+    padding: 20px;
+}
+
+.control-panel-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.panel-section {
+    background: #16213e;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.panel-section h3 {
+    font-size: 14px;
+    color: #888;
+    text-transform: uppercase;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #0f3460;
+}
+
+/* Radar in Panel */
+.radar-section .radar-display {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 15px;
+}
+
+.radar-section #controlRadarCanvas {
+    border-radius: 50%;
+    background: radial-gradient(circle, #0f3460 0%, #1a1a2e 100%);
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+}
+
+.radar-stats {
+    display: flex;
+    justify-content: space-around;
+    text-align: center;
+}
+
+.radar-stats .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.radar-stats .stat-label {
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+}
+
+.radar-stats .stat-value {
+    font-size: 18px;
+    font-weight: bold;
+    color: #00ff88;
+    font-family: 'Courier New', monospace;
+}
+
+.detection-badge {
+    padding: 4px 12px;
+    border-radius: 12px;
+    background: rgba(39, 174, 96, 0.2);
+    color: #27ae60 !important;
+    font-size: 12px !important;
+}
+
+.detection-badge.detected {
+    background: rgba(231, 76, 60, 0.3);
+    color: #e74c3c !important;
+    animation: pulse 1s infinite;
+}
+
+/* Sensor Cards */
+.sensor-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.sensor-card-large {
+    background: #0f3460;
+    border-radius: 8px;
+    padding: 15px;
+}
+
+.sensor-card-name {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+}
+
+.sensor-card-values {
+    display: flex;
+    justify-content: space-around;
+}
+
+.sensor-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sensor-icon {
+    font-size: 28px;
+}
+
+.sensor-data {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.sensor-value {
+    font-size: 32px;
+    font-weight: bold;
+    color: #fff;
+}
+
+.sensor-unit {
+    font-size: 16px;
+    color: #888;
+}
+
+/* GPIO Controls Grid */
+.gpio-controls-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.gpio-control-card {
+    background: #0f3460;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.gpio-control-card.gpio-input {
+    opacity: 0.8;
+}
+
+.gpio-control-header {
+    background: #16213e;
+    padding: 10px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.gpio-name {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.gpio-pin {
+    font-size: 11px;
+    color: #888;
+}
+
+.gpio-control-body {
+    padding: 15px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 60px;
+}
+
+/* Toggle Switch */
+.switch-container {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 60px;
+    height: 34px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #2c3e50;
+    transition: .3s;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 26px;
+    width: 26px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    transition: .3s;
+}
+
+input:checked + .slider {
+    background-color: var(--success);
+    box-shadow: 0 0 15px var(--success);
+}
+
+input:checked + .slider:before {
+    transform: translateX(26px);
+}
+
+.slider.round {
+    border-radius: 34px;
+}
+
+.slider.round:before {
+    border-radius: 50%;
+}
+
+.switch-label {
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--danger);
+}
+
+.switch-label.on {
+    color: var(--success);
+}
+
+/* PWM Slider */
+.pwm-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pwm-slider {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 8px;
+    border-radius: 4px;
+    background: #2c3e50;
+    outline: none;
+}
+
+.pwm-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--primary);
+    cursor: pointer;
+    box-shadow: 0 0 10px var(--primary);
+}
+
+.pwm-slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--primary);
+    cursor: pointer;
+}
+
+.pwm-value {
+    text-align: center;
+    font-family: 'Courier New', monospace;
+}
+
+.pwm-value span:first-child {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.pwm-percent {
+    font-size: 12px;
+    color: #888;
+    margin-left: 5px;
+}
+
+/* Input Display */
+.input-display {
+    width: 100%;
+}
+
+.analog-display {
+    width: 100%;
+}
+
+.analog-bar {
+    width: 100%;
+    height: 10px;
+    background: #2c3e50;
+    border-radius: 5px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.analog-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary), var(--success));
+    transition: width 0.3s;
+}
+
+.analog-value {
+    display: block;
+    text-align: center;
+    font-family: 'Courier New', monospace;
+    font-size: 18px;
+}
+
+.digital-display {
+    padding: 10px 25px;
+    border-radius: 4px;
+    background: rgba(231, 76, 60, 0.2);
+    color: var(--danger);
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.digital-display.high {
+    background: rgba(39, 174, 96, 0.2);
+    color: var(--success);
+}
+
+/* Empty State */
+.panel-empty {
+    text-align: center;
+    padding: 40px;
+    color: #888;
+}
+
+.panel-empty p {
+    margin-bottom: 20px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .control-panel-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .gpio-controls-grid {
+        grid-template-columns: 1fr;
+    }
+}
