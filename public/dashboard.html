@@ -338,22 +338,59 @@
 
                 <!-- Ultrasonic Tab -->
                 <div class="tab-content" :class="{ active: deviceTab === 'ultrasonic' }">
-                    <!-- Radar Display -->
-                    <div class="radar-container" x-show="deviceUltrasonics.length > 0">
-                        <canvas id="radarCanvas" width="300" height="300"></canvas>
-                        <div class="radar-info">
-                            <div class="distance-display">
-                                <span class="label">Distancia:</span>
-                                <span class="value" x-text="(currentDistance || '--') + ' cm'"></span>
+                    <!-- Detection Stats Panel -->
+                    <div class="detection-stats-panel" x-show="deviceUltrasonics.length > 0">
+                        <!-- Estado actual -->
+                        <div class="stats-row current-status">
+                            <div class="stat-card" :class="{ 'active': gpioTriggered }">
+                                <span class="stat-icon">⚡</span>
+                                <span class="stat-label">GPIO Trigger</span>
+                                <span class="stat-value" :class="gpioTriggered ? 'on' : 'off'" x-text="gpioTriggered ? 'ACTIVO' : 'Inactivo'"></span>
                             </div>
-                            <div class="detection-status" :class="{ detected: isObjectDetected }">
-                                <span x-text="isObjectDetected ? (detectedAnimal ? detectedAnimal.toUpperCase() : 'DETECTADO') : 'Sin detección'"></span>
+                            <div class="stat-card">
+                                <span class="stat-icon">📏</span>
+                                <span class="stat-label">Distancia</span>
+                                <span class="stat-value" x-text="(currentDistance !== null ? currentDistance + ' cm' : '--')"></span>
                             </div>
-                            <div class="speed-display" x-show="currentSpeed > 0">
-                                <span class="label">Velocidad:</span>
-                                <span class="value" x-text="currentSpeed + ' cm/s'"></span>
+                            <div class="stat-card">
+                                <span class="stat-icon">💨</span>
+                                <span class="stat-label">Velocidad</span>
+                                <span class="stat-value" x-text="currentSpeed + ' cm/s'"></span>
                             </div>
                         </div>
+
+                        <!-- Estado de detección -->
+                        <div class="detection-badge" :class="{ 'detected': isObjectDetected, 'idle': !isObjectDetected }">
+                            <span class="badge-icon" x-text="isObjectDetected ? animalIcon(detectedAnimal) : '😴'"></span>
+                            <span class="badge-text" x-text="isObjectDetected ? (detectedAnimal === 'detecting' ? 'Clasificando...' : detectedAnimal === 'mouse' ? 'Ratón detectado' : detectedAnimal === 'cat' ? 'Gato/Perro detectado' : 'Movimiento detectado') : 'Sin detección'"></span>
+                        </div>
+
+                        <!-- Contadores -->
+                        <div class="stats-row counters">
+                            <div class="counter-card">
+                                <span class="counter-value" x-text="detectionStats.total"></span>
+                                <span class="counter-label">Total</span>
+                            </div>
+                            <div class="counter-card mouse">
+                                <span class="counter-icon">🐭</span>
+                                <span class="counter-value" x-text="detectionStats.mice"></span>
+                                <span class="counter-label">Ratones</span>
+                            </div>
+                            <div class="counter-card cat">
+                                <span class="counter-icon">🐱</span>
+                                <span class="counter-value" x-text="detectionStats.cats"></span>
+                                <span class="counter-label">Gatos</span>
+                            </div>
+                        </div>
+
+                        <!-- Última detección -->
+                        <div class="last-detection" x-show="detectionStats.lastDetection">
+                            <span class="label">Última detección:</span>
+                            <span class="value" x-text="timeAgo(detectionStats.lastDetection)"></span>
+                            <span class="animal" x-text="animalIcon(detectionStats.lastAnimal)"></span>
+                        </div>
+
+                        <button class="btn btn-sm" @click="resetDetectionStats()" style="margin-top: 10px;">Resetear contadores</button>
                     </div>
 
                     <!-- Add Ultrasonic Form -->
@@ -450,27 +487,41 @@
             <div class="control-panel-body">
                 <!-- Top Row: Radar + Sensors -->
                 <div class="control-panel-grid">
-                    <!-- Radar Section -->
-                    <div class="panel-section radar-section" x-show="panelUltrasonics.length > 0">
+                    <!-- Detection Stats Section -->
+                    <div class="panel-section stats-section" x-show="panelUltrasonics.length > 0">
                         <h3>Sensor Ultrasónico</h3>
-                        <div class="radar-display">
-                            <canvas id="controlRadarCanvas" width="250" height="250"></canvas>
+
+                        <!-- Estado GPIO -->
+                        <div class="panel-gpio-status" :class="{ 'active': panelGpioTriggered }">
+                            <span class="status-icon">⚡</span>
+                            <span class="status-text" x-text="panelGpioTriggered ? 'GPIO ACTIVO' : 'GPIO Inactivo'"></span>
                         </div>
-                        <div class="radar-stats">
-                            <div class="stat">
-                                <span class="stat-label">Distancia</span>
-                                <span class="stat-value" x-text="(panelDistance || '--') + ' cm'"></span>
+
+                        <!-- Métricas actuales -->
+                        <div class="panel-metrics">
+                            <div class="metric">
+                                <span class="metric-value" x-text="(panelDistance !== null ? panelDistance : '--')"></span>
+                                <span class="metric-unit">cm</span>
+                                <span class="metric-label">Distancia</span>
                             </div>
-                            <div class="stat">
-                                <span class="stat-label">Estado</span>
-                                <span class="stat-value detection-badge" :class="{ detected: panelDetected }">
-                                    <span x-text="panelDetected ? (panelAnimal ? panelAnimal.toUpperCase() : 'DETECTADO') : 'Libre'"></span>
-                                </span>
+                            <div class="metric">
+                                <span class="metric-value" x-text="panelSpeed"></span>
+                                <span class="metric-unit">cm/s</span>
+                                <span class="metric-label">Velocidad</span>
                             </div>
-                            <div class="stat" x-show="panelSpeed > 0">
-                                <span class="stat-label">Velocidad</span>
-                                <span class="stat-value" x-text="panelSpeed + ' cm/s'"></span>
-                            </div>
+                        </div>
+
+                        <!-- Estado detección -->
+                        <div class="panel-detection-status" :class="{ 'detected': panelDetected }">
+                            <span class="detection-icon" x-text="panelDetected ? animalIcon(panelAnimal) : '😴'"></span>
+                            <span class="detection-text" x-text="panelDetected ? (panelAnimal === 'mouse' ? 'Ratón' : panelAnimal === 'cat' ? 'Gato/Perro' : 'Detectando...') : 'Sin detección'"></span>
+                        </div>
+
+                        <!-- Contadores compactos -->
+                        <div class="panel-counters">
+                            <span class="counter">Total: <strong x-text="panelDetectionStats.total"></strong></span>
+                            <span class="counter">🐭 <strong x-text="panelDetectionStats.mice"></strong></span>
+                            <span class="counter">🐱 <strong x-text="panelDetectionStats.cats"></strong></span>
                         </div>
                     </div>
 
