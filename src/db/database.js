@@ -12,6 +12,9 @@ function initDatabase() {
   // Habilitar foreign keys
   db.pragma('foreign_keys = ON');
 
+  // Habilitar modo WAL para mejor rendimiento en concurrencia
+  db.pragma('journal_mode = WAL');
+
   // Ejecutar schema
   const schemaPath = path.join(__dirname, 'schema.sql');
   const schema = fs.readFileSync(schemaPath, 'utf8');
