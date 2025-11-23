@@ -88,6 +88,10 @@ function handleDeviceMessage(socket, data, setMac) {
       handleOtaStatus(socket, data);
       break;
 
+    case 'offline_detections':
+      handleOfflineDetections(socket, data);
+      break;
+
     default:
       console.log('Mensaje desconocido de dispositivo:', data.type);
   }
@@ -233,6 +237,48 @@ function handleDeviceData(socket, data) {
     device_id: device.id,
     payload: dashboardPayload
   });
+}
+
+function handleOfflineDetections(socket, data) {
+  const { mac_address, detections } = data;
+
+  if (!mac_address || !detections || !Array.isArray(detections)) {
+    console.log('Datos de detecciones offline inválidos');
+    return;
+  }
+
+  const normalizedMac = mac_address.toUpperCase().trim();
+  const device = db.getDeviceByMac(normalizedMac);
+
+  if (!device) {
+    console.log(`Dispositivo no encontrado para detecciones offline: ${normalizedMac}`);
+    return;
+  }
+
+  console.log(`📥 Recibidas ${detections.length} detecciones offline de ${device.name}`);
+
+  // Guardar cada detección en la base de datos
+  detections.forEach((det, index) => {
+    // Guardar como evento de detección
+    db.saveSensorData(device.id, 'offline_detection', det.distance, null, JSON.stringify({
+      animal: det.animal,
+      speed: det.speed,
+      duration: det.duration,
+      offline_ts: det.offline_ts
+    }));
+  });
+
+  // Notificar a los dashboards
+  broadcastToDashboards({
+    type: 'offline_detections_received',
+    device_id: device.id,
+    device_name: device.name,
+    mac_address: normalizedMac,
+    count: detections.length,
+    detections: detections
+  });
+
+  console.log(`✅ Guardadas ${detections.length} detecciones offline para ${device.name}`);
 }
 
 function handleOtaStatus(socket, data) {
