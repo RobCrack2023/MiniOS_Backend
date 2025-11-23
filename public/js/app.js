@@ -347,7 +347,7 @@ function app() {
             });
         },
 
-        // Panel Radar Animation
+        // Panel Ultrasonic Cone Visualization
         initPanelRadar() {
             const canvas = document.getElementById('controlRadarCanvas');
             if (!canvas) return;
@@ -371,82 +371,152 @@ function app() {
 
             const ctx = this.panelRadarCtx;
             const canvas = this.panelRadarCanvas;
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2;
-            const radius = Math.min(centerX, centerY) - 10;
+            const width = canvas.width;
+            const height = canvas.height;
+            const padding = 15;
 
-            // Limpiar canvas con fade
-            ctx.fillStyle = 'rgba(15, 52, 96, 0.1)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // Limpiar canvas
+            ctx.fillStyle = '#0f3460';
+            ctx.fillRect(0, 0, width, height);
 
-            // Dibujar círculos de distancia
-            ctx.strokeStyle = 'rgba(0, 255, 136, 0.3)';
-            ctx.lineWidth = 1;
-            for (let i = 1; i <= 4; i++) {
-                ctx.beginPath();
-                ctx.arc(centerX, centerY, (radius / 4) * i, 0, Math.PI * 2);
-                ctx.stroke();
-            }
+            // Configuración del cono
+            const sensorX = padding + 25;
+            const sensorY = height / 2;
+            const coneLength = width - padding * 2 - 35;
+            const coneAngle = Math.PI / 6;
 
-            // Dibujar líneas de cuadrante
+            // Obtener configuración del sensor
+            const maxDist = this.panelUltrasonics.length > 0 ? (this.panelUltrasonics[0].max_distance || 400) : 400;
+            const triggerDist = this.panelUltrasonics.length > 0 ? (this.panelUltrasonics[0].trigger_distance || 50) : 50;
+
+            // Dibujar zona de detección (trigger zone)
+            const triggerX = sensorX + (triggerDist / maxDist) * coneLength;
+            ctx.fillStyle = 'rgba(231, 76, 60, 0.15)';
             ctx.beginPath();
-            ctx.moveTo(centerX, centerY - radius);
-            ctx.lineTo(centerX, centerY + radius);
-            ctx.moveTo(centerX - radius, centerY);
-            ctx.lineTo(centerX + radius, centerY);
-            ctx.stroke();
-
-            // Dibujar línea de barrido
-            ctx.strokeStyle = '#00ff88';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(centerX, centerY);
-            ctx.lineTo(
-                centerX + Math.cos(this.panelRadarAngle) * radius,
-                centerY + Math.sin(this.panelRadarAngle) * radius
-            );
-            ctx.stroke();
-
-            // Dibujar objeto detectado
-            if (this.panelDistance && this.panelUltrasonics.length > 0) {
-                const maxDist = this.panelUltrasonics[0].max_distance || 400;
-                const triggerDist = this.panelUltrasonics[0].trigger_distance || 50;
-                const distRatio = Math.min(this.panelDistance / maxDist, 1);
-                const objectRadius = distRatio * radius;
-
-                // Punto del objeto
-                ctx.fillStyle = this.panelDetected ? '#e74c3c' : '#00ff88';
-                ctx.beginPath();
-                ctx.arc(
-                    centerX + Math.cos(this.panelRadarAngle - 0.1) * objectRadius,
-                    centerY + Math.sin(this.panelRadarAngle - 0.1) * objectRadius,
-                    6,
-                    0,
-                    Math.PI * 2
-                );
-                ctx.fill();
-
-                // Círculo de zona de detección
-                const triggerRadius = (triggerDist / maxDist) * radius;
-                ctx.strokeStyle = 'rgba(231, 76, 60, 0.5)';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
-                ctx.beginPath();
-                ctx.arc(centerX, centerY, triggerRadius, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.setLineDash([]);
-            }
-
-            // Centro
-            ctx.fillStyle = '#00ff88';
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, 4, 0, Math.PI * 2);
+            ctx.moveTo(sensorX, sensorY);
+            ctx.lineTo(triggerX, sensorY - Math.tan(coneAngle) * (triggerX - sensorX));
+            ctx.lineTo(triggerX, sensorY + Math.tan(coneAngle) * (triggerX - sensorX));
+            ctx.closePath();
             ctx.fill();
 
-            // Actualizar ángulo
-            this.panelRadarAngle += 0.03;
-            if (this.panelRadarAngle > Math.PI * 2) {
-                this.panelRadarAngle = 0;
+            // Dibujar cono de detección completo
+            const gradient = ctx.createLinearGradient(sensorX, sensorY, sensorX + coneLength, sensorY);
+            gradient.addColorStop(0, 'rgba(0, 255, 136, 0.4)');
+            gradient.addColorStop(1, 'rgba(0, 255, 136, 0.05)');
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.moveTo(sensorX, sensorY);
+            ctx.lineTo(sensorX + coneLength, sensorY - Math.tan(coneAngle) * coneLength);
+            ctx.lineTo(sensorX + coneLength, sensorY + Math.tan(coneAngle) * coneLength);
+            ctx.closePath();
+            ctx.fill();
+
+            // Dibujar líneas del cono
+            ctx.strokeStyle = 'rgba(0, 255, 136, 0.5)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(sensorX, sensorY);
+            ctx.lineTo(sensorX + coneLength, sensorY - Math.tan(coneAngle) * coneLength);
+            ctx.moveTo(sensorX, sensorY);
+            ctx.lineTo(sensorX + coneLength, sensorY + Math.tan(coneAngle) * coneLength);
+            ctx.stroke();
+
+            // Dibujar líneas de distancia (marcas)
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.setLineDash([3, 3]);
+            for (let i = 1; i <= 4; i++) {
+                const markX = sensorX + (coneLength / 4) * i;
+                const markDist = Math.round((maxDist / 4) * i);
+                ctx.beginPath();
+                ctx.moveTo(markX, sensorY - Math.tan(coneAngle) * (markX - sensorX));
+                ctx.lineTo(markX, sensorY + Math.tan(coneAngle) * (markX - sensorX));
+                ctx.stroke();
+
+                // Etiqueta de distancia
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.font = '9px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${markDist}`, markX, height - 3);
+            }
+            ctx.setLineDash([]);
+
+            // Dibujar línea de trigger
+            ctx.strokeStyle = '#e74c3c';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(triggerX, sensorY - Math.tan(coneAngle) * (triggerX - sensorX) - 3);
+            ctx.lineTo(triggerX, sensorY + Math.tan(coneAngle) * (triggerX - sensorX) + 3);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Dibujar sensor (icono)
+            ctx.fillStyle = '#00ff88';
+            ctx.beginPath();
+            ctx.arc(sensorX, sensorY, 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#0f3460';
+            ctx.beginPath();
+            ctx.arc(sensorX, sensorY, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Pulso de emisión (animación)
+            this.panelRadarAngle += 0.05;
+            const pulseRadius = (this.panelRadarAngle % 1) * coneLength;
+            if (pulseRadius > 0) {
+                ctx.strokeStyle = `rgba(0, 255, 136, ${0.5 - (pulseRadius / coneLength) * 0.5})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(sensorX, sensorY, pulseRadius, -coneAngle, coneAngle);
+                ctx.stroke();
+            }
+
+            // Dibujar objeto detectado
+            if (this.panelDistance !== null && this.panelDistance >= 0) {
+                const distRatio = Math.min(this.panelDistance / maxDist, 1);
+                const objectX = sensorX + distRatio * coneLength;
+
+                // Determinar color según estado
+                let objectColor = '#00ff88';
+                if (this.panelDistance <= triggerDist) {
+                    objectColor = this.panelDetected ? '#e74c3c' : '#f39c12';
+                }
+
+                // Dibujar objeto
+                ctx.fillStyle = objectColor;
+                ctx.shadowColor = objectColor;
+                ctx.shadowBlur = 12;
+                ctx.beginPath();
+                ctx.arc(objectX, sensorY, 8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                // Icono según tipo de animal
+                if (this.panelDetected && this.panelAnimal) {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '12px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    let icon = '?';
+                    if (this.panelAnimal === 'mouse') icon = '🐭';
+                    else if (this.panelAnimal === 'cat') icon = '🐱';
+                    else if (this.panelAnimal === 'detecting') icon = '...';
+                    ctx.fillText(icon, objectX, sensorY - 16);
+                }
+
+                // Mostrar distancia
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 10px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${Math.round(this.panelDistance)}cm`, objectX, sensorY + 20);
+            }
+
+            // Info de velocidad
+            if (this.panelSpeed > 0) {
+                ctx.fillStyle = this.panelDetected ? '#e74c3c' : '#00ff88';
+                ctx.font = 'bold 10px monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText(`${this.panelSpeed} cm/s`, padding, 12);
             }
 
             // Continuar animación
@@ -558,7 +628,7 @@ function app() {
             }
         },
 
-        // Radar Animation
+        // Ultrasonic Cone Visualization
         initRadar() {
             const canvas = document.getElementById('radarCanvas');
             if (!canvas) return;
@@ -583,96 +653,158 @@ function app() {
 
             const ctx = this.radarCtx;
             const canvas = this.radarCanvas;
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2;
-            const radius = Math.min(centerX, centerY) - 10;
+            const width = canvas.width;
+            const height = canvas.height;
+            const padding = 20;
 
             // Limpiar canvas
-            ctx.fillStyle = 'rgba(15, 52, 96, 0.1)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#0f3460';
+            ctx.fillRect(0, 0, width, height);
 
-            // Dibujar círculos de distancia
-            ctx.strokeStyle = 'rgba(0, 255, 136, 0.3)';
-            ctx.lineWidth = 1;
-            for (let i = 1; i <= 4; i++) {
-                ctx.beginPath();
-                ctx.arc(centerX, centerY, (radius / 4) * i, 0, Math.PI * 2);
-                ctx.stroke();
-            }
+            // Configuración del cono
+            const sensorX = padding + 30;
+            const sensorY = height / 2;
+            const coneLength = width - padding * 2 - 40;
+            const coneAngle = Math.PI / 6; // 30 grados de apertura
 
-            // Dibujar líneas de cuadrante
+            // Obtener configuración del sensor
+            const maxDist = this.deviceUltrasonics.length > 0 ? (this.deviceUltrasonics[0].max_distance || 400) : 400;
+            const triggerDist = this.deviceUltrasonics.length > 0 ? (this.deviceUltrasonics[0].trigger_distance || 50) : 50;
+
+            // Dibujar zona de detección (trigger zone)
+            const triggerX = sensorX + (triggerDist / maxDist) * coneLength;
+            ctx.fillStyle = 'rgba(231, 76, 60, 0.15)';
             ctx.beginPath();
-            ctx.moveTo(centerX, centerY - radius);
-            ctx.lineTo(centerX, centerY + radius);
-            ctx.moveTo(centerX - radius, centerY);
-            ctx.lineTo(centerX + radius, centerY);
-            ctx.stroke();
-
-            // Dibujar barrido (sweep)
-            const gradient = ctx.createConicalGradient(centerX, centerY, this.radarAngle);
-            if (ctx.createConicGradient) {
-                const conicGradient = ctx.createConicGradient(this.radarAngle, centerX, centerY);
-                conicGradient.addColorStop(0, 'rgba(0, 255, 136, 0.5)');
-                conicGradient.addColorStop(0.1, 'rgba(0, 255, 136, 0)');
-                conicGradient.addColorStop(1, 'rgba(0, 255, 136, 0)');
-                ctx.fillStyle = conicGradient;
-                ctx.beginPath();
-                ctx.moveTo(centerX, centerY);
-                ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            // Dibujar línea de barrido
-            ctx.strokeStyle = '#00ff88';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(centerX, centerY);
-            ctx.lineTo(
-                centerX + Math.cos(this.radarAngle) * radius,
-                centerY + Math.sin(this.radarAngle) * radius
-            );
-            ctx.stroke();
-
-            // Dibujar objeto detectado
-            if (this.currentDistance && this.deviceUltrasonics.length > 0) {
-                const maxDist = this.deviceUltrasonics[0].max_distance || 400;
-                const triggerDist = this.deviceUltrasonics[0].trigger_distance || 50;
-                const distRatio = Math.min(this.currentDistance / maxDist, 1);
-                const objectRadius = distRatio * radius;
-
-                // Punto del objeto
-                ctx.fillStyle = this.isObjectDetected ? '#e74c3c' : '#00ff88';
-                ctx.beginPath();
-                ctx.arc(
-                    centerX + Math.cos(this.radarAngle - 0.1) * objectRadius,
-                    centerY + Math.sin(this.radarAngle - 0.1) * objectRadius,
-                    8,
-                    0,
-                    Math.PI * 2
-                );
-                ctx.fill();
-
-                // Círculo de zona de detección
-                const triggerRadius = (triggerDist / maxDist) * radius;
-                ctx.strokeStyle = 'rgba(231, 76, 60, 0.5)';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
-                ctx.beginPath();
-                ctx.arc(centerX, centerY, triggerRadius, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.setLineDash([]);
-            }
-
-            // Centro
-            ctx.fillStyle = '#00ff88';
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
+            ctx.moveTo(sensorX, sensorY);
+            ctx.lineTo(triggerX, sensorY - Math.tan(coneAngle) * (triggerX - sensorX));
+            ctx.lineTo(triggerX, sensorY + Math.tan(coneAngle) * (triggerX - sensorX));
+            ctx.closePath();
             ctx.fill();
 
-            // Actualizar ángulo
-            this.radarAngle += 0.03;
-            if (this.radarAngle > Math.PI * 2) {
-                this.radarAngle = 0;
+            // Dibujar cono de detección completo
+            const gradient = ctx.createLinearGradient(sensorX, sensorY, sensorX + coneLength, sensorY);
+            gradient.addColorStop(0, 'rgba(0, 255, 136, 0.4)');
+            gradient.addColorStop(1, 'rgba(0, 255, 136, 0.05)');
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.moveTo(sensorX, sensorY);
+            ctx.lineTo(sensorX + coneLength, sensorY - Math.tan(coneAngle) * coneLength);
+            ctx.lineTo(sensorX + coneLength, sensorY + Math.tan(coneAngle) * coneLength);
+            ctx.closePath();
+            ctx.fill();
+
+            // Dibujar líneas del cono
+            ctx.strokeStyle = 'rgba(0, 255, 136, 0.5)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(sensorX, sensorY);
+            ctx.lineTo(sensorX + coneLength, sensorY - Math.tan(coneAngle) * coneLength);
+            ctx.moveTo(sensorX, sensorY);
+            ctx.lineTo(sensorX + coneLength, sensorY + Math.tan(coneAngle) * coneLength);
+            ctx.stroke();
+
+            // Dibujar líneas de distancia (marcas)
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.setLineDash([3, 3]);
+            for (let i = 1; i <= 4; i++) {
+                const markX = sensorX + (coneLength / 4) * i;
+                const markDist = Math.round((maxDist / 4) * i);
+                ctx.beginPath();
+                ctx.moveTo(markX, sensorY - Math.tan(coneAngle) * (markX - sensorX));
+                ctx.lineTo(markX, sensorY + Math.tan(coneAngle) * (markX - sensorX));
+                ctx.stroke();
+
+                // Etiqueta de distancia
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.font = '10px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${markDist}cm`, markX, height - 5);
+            }
+            ctx.setLineDash([]);
+
+            // Dibujar línea de trigger
+            ctx.strokeStyle = '#e74c3c';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(triggerX, sensorY - Math.tan(coneAngle) * (triggerX - sensorX) - 5);
+            ctx.lineTo(triggerX, sensorY + Math.tan(coneAngle) * (triggerX - sensorX) + 5);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Etiqueta de trigger
+            ctx.fillStyle = '#e74c3c';
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${triggerDist}cm`, triggerX, 12);
+
+            // Dibujar sensor (icono)
+            ctx.fillStyle = '#00ff88';
+            ctx.beginPath();
+            ctx.arc(sensorX, sensorY, 12, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#0f3460';
+            ctx.beginPath();
+            ctx.arc(sensorX, sensorY, 6, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Pulso de emisión (animación)
+            this.radarAngle += 0.05;
+            const pulseRadius = (this.radarAngle % 1) * coneLength;
+            if (pulseRadius > 0) {
+                ctx.strokeStyle = `rgba(0, 255, 136, ${0.5 - (pulseRadius / coneLength) * 0.5})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(sensorX, sensorY, pulseRadius, -coneAngle, coneAngle);
+                ctx.stroke();
+            }
+
+            // Dibujar objeto detectado
+            if (this.currentDistance !== null && this.currentDistance >= 0) {
+                const distRatio = Math.min(this.currentDistance / maxDist, 1);
+                const objectX = sensorX + distRatio * coneLength;
+
+                // Determinar color según estado
+                let objectColor = '#00ff88'; // Verde: fuera de zona
+                if (this.currentDistance <= triggerDist) {
+                    objectColor = this.isObjectDetected ? '#e74c3c' : '#f39c12'; // Rojo si detectado/moviendo, naranja si estático
+                }
+
+                // Dibujar objeto
+                ctx.fillStyle = objectColor;
+                ctx.shadowColor = objectColor;
+                ctx.shadowBlur = 15;
+                ctx.beginPath();
+                ctx.arc(objectX, sensorY, 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                // Icono según tipo de animal
+                if (this.isObjectDetected && this.detectedAnimal) {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '14px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    let icon = '?';
+                    if (this.detectedAnimal === 'mouse') icon = '🐭';
+                    else if (this.detectedAnimal === 'cat') icon = '🐱';
+                    else if (this.detectedAnimal === 'detecting') icon = '...';
+                    ctx.fillText(icon, objectX, sensorY - 20);
+                }
+
+                // Mostrar distancia sobre el objeto
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 12px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${Math.round(this.currentDistance)} cm`, objectX, sensorY + 25);
+            }
+
+            // Info de velocidad
+            if (this.currentSpeed > 0) {
+                ctx.fillStyle = this.isObjectDetected ? '#e74c3c' : '#00ff88';
+                ctx.font = 'bold 11px monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText(`Vel: ${this.currentSpeed} cm/s`, padding, 15);
             }
 
             // Continuar animación
