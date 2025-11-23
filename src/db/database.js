@@ -42,15 +42,24 @@ function getDatabase() {
 // ============================================
 
 function getDevices() {
-  return db.prepare('SELECT * FROM devices ORDER BY name').all();
+  const devices = db.prepare('SELECT * FROM devices ORDER BY name').all();
+  // Convertir 0/1 de SQLite a booleanos para el frontend
+  return devices.map(device => ({
+    ...device,
+    is_online: Boolean(device.is_online)
+  }));
 }
 
 function getDeviceByMac(macAddress) {
-  return db.prepare('SELECT * FROM devices WHERE mac_address = ?').get(macAddress);
+  const device = db.prepare('SELECT * FROM devices WHERE mac_address = ?').get(macAddress);
+  if (!device) return null;
+  return { ...device, is_online: Boolean(device.is_online) };
 }
 
 function getDeviceById(id) {
-  return db.prepare('SELECT * FROM devices WHERE id = ?').get(id);
+  const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(id);
+  if (!device) return null;
+  return { ...device, is_online: Boolean(device.is_online) };
 }
 
 function createDevice(macAddress, name = 'Nuevo Dispositivo') {
@@ -123,7 +132,14 @@ function deleteDevice(id) {
 // ============================================
 
 function getGpioConfigs(deviceId) {
-  return db.prepare('SELECT * FROM gpio_configs WHERE device_id = ? ORDER BY pin').all(deviceId);
+  const configs = db.prepare('SELECT * FROM gpio_configs WHERE device_id = ? ORDER BY pin').all(deviceId);
+  // Convertir 0/1 de SQLite a booleanos para el frontend
+  return configs.map(config => ({
+    ...config,
+    loop_enabled: Boolean(config.loop_enabled),
+    formula_enabled: Boolean(config.formula_enabled),
+    active: Boolean(config.active)
+  }));
 }
 
 function setGpioConfig(deviceId, config) {
@@ -159,7 +175,7 @@ function setGpioConfig(deviceId, config) {
     config.formula_min || 0,
     config.formula_max || 100,
     config.unit || '',
-    config.active !== false ? 1 : 0
+    config.active === false ? 0 : 1
   );
 }
 
@@ -172,7 +188,12 @@ function deleteGpioConfig(deviceId, pin) {
 // ============================================
 
 function getDhtConfigs(deviceId) {
-  return db.prepare('SELECT * FROM dht_configs WHERE device_id = ? ORDER BY pin').all(deviceId);
+  const configs = db.prepare('SELECT * FROM dht_configs WHERE device_id = ? ORDER BY pin').all(deviceId);
+  // Convertir 0/1 de SQLite a booleanos para el frontend
+  return configs.map(config => ({
+    ...config,
+    active: Boolean(config.active)
+  }));
 }
 
 function setDhtConfig(deviceId, config) {
@@ -192,7 +213,7 @@ function setDhtConfig(deviceId, config) {
     config.name || `DHT ${config.pin}`,
     config.sensor_type || 'DHT11',
     config.read_interval || 5000,
-    config.active !== false ? 1 : 0
+    config.active === false ? 0 : 1
   );
 }
 
@@ -241,15 +262,20 @@ function cleanOldSensorData(days = 7) {
 // ============================================
 
 function getFirmwareList() {
-  return db.prepare('SELECT * FROM firmware ORDER BY uploaded_at DESC').all();
+  const list = db.prepare('SELECT * FROM firmware ORDER BY uploaded_at DESC').all();
+  return list.map(fw => ({ ...fw, is_active: Boolean(fw.is_active) }));
 }
 
 function getFirmwareById(id) {
-  return db.prepare('SELECT * FROM firmware WHERE id = ?').get(id);
+  const fw = db.prepare('SELECT * FROM firmware WHERE id = ?').get(id);
+  if (!fw) return null;
+  return { ...fw, is_active: Boolean(fw.is_active) };
 }
 
 function getActiveFirmware() {
-  return db.prepare('SELECT * FROM firmware WHERE is_active = 1').get();
+  const fw = db.prepare('SELECT * FROM firmware WHERE is_active = 1').get();
+  if (!fw) return null;
+  return { ...fw, is_active: Boolean(fw.is_active) };
 }
 
 function addFirmware(version, filename, filesize, checksum, description = '') {
@@ -320,7 +346,14 @@ function createUser(username, hashedPassword) {
 // ============================================
 
 function getUltrasonicConfigs(deviceId) {
-  return db.prepare('SELECT * FROM ultrasonic_configs WHERE device_id = ? ORDER BY id').all(deviceId);
+  const configs = db.prepare('SELECT * FROM ultrasonic_configs WHERE device_id = ? ORDER BY id').all(deviceId);
+  // Convertir 0/1 de SQLite a booleanos para el frontend
+  return configs.map(config => ({
+    ...config,
+    detection_enabled: Boolean(config.detection_enabled),
+    smart_detection_enabled: Boolean(config.smart_detection_enabled),
+    active: Boolean(config.active)
+  }));
 }
 
 function getUltrasonicConfigById(id) {
@@ -359,7 +392,7 @@ function setUltrasonicConfig(deviceId, config) {
     config.echo_pin,
     config.max_distance || 400,
     config.read_interval || 100,
-    config.detection_enabled !== false ? 1 : 0,
+    config.detection_enabled === false ? 0 : 1,
     config.trigger_distance || 50,
     config.trigger_gpio_pin || null,
     config.trigger_gpio_value !== undefined ? config.trigger_gpio_value : 1,
@@ -369,7 +402,7 @@ function setUltrasonicConfig(deviceId, config) {
     config.mouse_max_speed || 100,
     config.mouse_max_duration || 2000,
     config.cat_min_duration || 2000,
-    config.active !== false ? 1 : 0
+    config.active === false ? 0 : 1
   );
 }
 
