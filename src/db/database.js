@@ -416,26 +416,7 @@ function analyzeDetection(deviceId, sensorId, config) {
   const triggerDistance = config.trigger_distance;
   const now = Date.now();
 
-  // Verificar si hay objeto dentro del rango
-  const inRange = readings.filter(r => r.distance <= triggerDistance);
-  if (inRange.length === 0) {
-    // Objeto salió del rango
-    if (buffer.detectionStart) {
-      const duration = now - buffer.detectionStart;
-      buffer.detectionStart = null;
-      buffer.lastDetection = { endTime: now, duration };
-    }
-    return { detected: false };
-  }
-
-  // Objeto detectado
-  if (!buffer.detectionStart) {
-    buffer.detectionStart = inRange[0].time;
-  }
-
-  const duration = now - buffer.detectionStart;
-
-  // Calcular velocidad (cambio de distancia por tiempo)
+  // Calcular velocidad primero (cambio de distancia por tiempo)
   let speed = 0;
   if (readings.length >= 2) {
     const recent = readings.slice(-5);
@@ -447,13 +428,58 @@ function analyzeDetection(deviceId, sensorId, config) {
     speed = timeSpan > 0 ? totalChange / timeSpan : 0; // cm/s
   }
 
+  // Umbral mínimo de movimiento (5 cm/s) para descartar objetos estáticos
+  const MIN_MOVEMENT_SPEED = 5;
+  const isMoving = speed >= MIN_MOVEMENT_SPEED;
+
+  // Verificar si hay objeto dentro del rango
+  const inRange = readings.filter(r => r.distance <= triggerDistance);
+  if (inRange.length === 0) {
+    // Objeto salió del rango
+    if (buffer.detectionStart) {
+      const duration = now - buffer.detectionStart;
+      buffer.detectionStart = null;
+      buffer.lastDetection = { endTime: now, duration };
+    }
+    return { detected: false, speed: Math.round(speed), isMoving };
+  }
+
+  // Solo detectar si hay movimiento real (no objetos estáticos)
+  if (!isMoving) {
+    // Hay algo en rango pero no se mueve - resetear detección
+    buffer.detectionStart = null;
+    return {
+      detected: false,
+      distance: readings[readings.length - 1].distance,
+      speed: Math.round(speed),
+      isMoving: false,
+      reason: 'static_object'
+    };
+  }
+
+  // Objeto en movimiento detectado
+  if (!buffer.detectionStart) {
+    buffer.detectionStart = inRange[0].time;
+  }
+
+  const duration = now - buffer.detectionStart;
+
   // Clasificar animal si smart_detection está habilitado
+  // Ratón: movimiento rápido y corta duración
+  // Gato/Perro: movimiento más lento y mayor duración
   let animalType = 'unknown';
   if (config.smart_detection_enabled) {
-    if (speed > config.mouse_max_speed || duration < config.mouse_max_duration) {
+    // Ratón: velocidad alta (> 50 cm/s típico) o duración corta (pasa rápido)
+    if (speed <= config.mouse_max_speed && duration <= config.mouse_max_duration) {
       animalType = 'mouse';
-    } else if (duration >= config.cat_min_duration) {
-      animalType = 'cat';
+    }
+    // Gato/Perro: permanece más tiempo en el área
+    else if (duration >= config.cat_min_duration) {
+      animalType = 'cat'; // cat incluye perros (animales grandes)
+    }
+    // Intermedio: aún no se puede clasificar, esperar más datos
+    else {
+      animalType = 'detecting';
     }
   }
 
@@ -462,6 +488,7 @@ function analyzeDetection(deviceId, sensorId, config) {
     distance: readings[readings.length - 1].distance,
     duration,
     speed: Math.round(speed),
+    isMoving: true,
     animalType,
     shouldTrigger: shouldTriggerGpio(config, animalType)
   };
@@ -471,10 +498,14 @@ function shouldTriggerGpio(config, detectedAnimal) {
   if (!config.detection_enabled) return false;
   if (!config.trigger_gpio_pin) return false;
 
+  // Si smart_detection está deshabilitado, disparar con cualquier movimiento
   if (!config.smart_detection_enabled) return true;
 
+  // No disparar si aún está clasificando
+  if (detectedAnimal === 'detecting' || detectedAnimal === 'unknown') return false;
+
   const targetAnimal = config.animal_type;
-  if (targetAnimal === 'any') return true;
+  if (targetAnimal === 'any') return detectedAnimal === 'cat' || detectedAnimal === 'mouse';
   if (targetAnimal === 'both') return detectedAnimal === 'cat' || detectedAnimal === 'mouse';
   return targetAnimal === detectedAnimal;
 }
