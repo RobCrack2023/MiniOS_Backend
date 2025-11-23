@@ -196,46 +196,22 @@ function handleDeviceData(socket, data) {
     });
   }
 
-  // Guardar datos ultrasónicos y analizar detección
+  // Guardar datos ultrasónicos (el análisis viene del ESP32)
   if (payload.ultrasonic && Array.isArray(payload.ultrasonic)) {
     payload.ultrasonic.forEach(sensor => {
       // Guardar lectura de distancia
       db.saveSensorData(device.id, 'distance', sensor.distance, sensor.trig_pin);
 
-      // Obtener configuración del sensor
-      const configs = db.getUltrasonicConfigs(device.id);
-      const config = configs.find(c => c.trig_pin === sensor.trig_pin);
-
-      if (config && config.active) {
-        // Agregar lectura al buffer de análisis
-        db.addDistanceReading(device.id, config.id, sensor.distance);
-
-        // Analizar detección
-        const analysis = db.analyzeDetection(device.id, config.id, config);
-
-        if (analysis.detected && analysis.shouldTrigger) {
-          // Enviar comando al ESP32 para activar GPIO
-          sendToDevice(mac_address, {
-            type: 'command',
-            action: 'ultrasonic_trigger',
-            gpio_pin: config.trigger_gpio_pin,
-            gpio_value: config.trigger_gpio_value,
-            duration: config.trigger_duration,
-            animal_type: analysis.animalType
-          });
-
-          // Notificar a dashboards sobre la detección
-          broadcastToDashboards({
-            type: 'ultrasonic_detection',
-            device_id: device.id,
-            mac_address,
-            sensor_id: config.id,
-            detection: analysis
-          });
-        }
-
-        // Agregar análisis al payload para el dashboard
-        sensor.analysis = analysis;
+      // El análisis ya viene calculado desde el ESP32 en sensor.analysis
+      // Solo notificar al dashboard si hay detección activa
+      if (sensor.analysis && sensor.analysis.detected) {
+        broadcastToDashboards({
+          type: 'ultrasonic_detection',
+          device_id: device.id,
+          mac_address,
+          sensor_id: sensor.id,
+          detection: sensor.analysis
+        });
       }
     });
   }
