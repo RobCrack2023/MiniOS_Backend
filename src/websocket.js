@@ -92,6 +92,10 @@ function handleDeviceMessage(socket, data, setMac) {
       handleOfflineDetections(socket, data);
       break;
 
+    case 'i2c_scan_result':
+      handleI2cScanResult(socket, data);
+      break;
+
     default:
       console.log('Mensaje desconocido de dispositivo:', data.type);
   }
@@ -314,6 +318,27 @@ function handleOfflineDetections(socket, data) {
   });
 
   console.log(`✅ Guardadas ${detections.length} detecciones offline para ${device.name}`);
+}
+
+function handleI2cScanResult(socket, data) {
+  const { devices } = data;
+
+  if (!devices || !Array.isArray(devices)) {
+    console.log('Datos de escaneo I2C inválidos');
+    return;
+  }
+
+  console.log(`🔍 Resultado escaneo I2C: ${devices.length} dispositivo(s) encontrado(s)`);
+
+  devices.forEach(dev => {
+    console.log(`  ✓ 0x${dev.address.toString(16).toUpperCase().padStart(2, '0')} - ${dev.sensor_type}`);
+  });
+
+  // Reenviar resultados a los dashboards
+  broadcastToDashboards({
+    type: 'i2c_scan_result',
+    devices: devices
+  });
 }
 
 function handleOtaStatus(socket, data) {

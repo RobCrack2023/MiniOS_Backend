@@ -384,6 +384,35 @@
 
                 <!-- I2C Tab -->
                 <div class="tab-content" :class="{ active: deviceTab === 'i2c' }">
+                    <!-- Botón de escaneo -->
+                    <div class="form-group">
+                        <button class="btn btn-primary" @click="scanI2c()" :disabled="isScanning">
+                            <span x-show="!isScanning">🔍 Escanear Bus I2C</span>
+                            <span x-show="isScanning">⏳ Escaneando...</span>
+                        </button>
+                    </div>
+
+                    <!-- Resultados del escaneo -->
+                    <div x-show="i2cScanResults.length > 0" class="form-group" style="margin-bottom: 20px; padding: 10px; background: #f0f8ff; border-radius: 8px;">
+                        <label>Dispositivos I2C Detectados</label>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <template x-for="device in i2cScanResults" :key="device.address">
+                                <div style="display: flex; align-items: center; gap: 10px; padding: 8px; background: white; border-radius: 4px; cursor: pointer;"
+                                     @click="selectI2cDevice(device)">
+                                    <div style="flex: 1;">
+                                        <strong x-text="'0x' + device.address.toString(16).toUpperCase().padStart(2, '0')"></strong>
+                                        <span x-show="device.sensor_type !== 'Unknown'"
+                                              x-text="' - ' + device.sensor_type"
+                                              style="color: #4CAF50; font-weight: 600;"></span>
+                                        <span x-show="device.sensor_type === 'Unknown'"
+                                              style="color: #999;"> - Desconocido</span>
+                                    </div>
+                                    <button class="btn btn-success btn-sm" @click.stop="selectI2cDevice(device)">Seleccionar</button>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
                     <div class="form-group">
                         <label>Agregar Sensor I2C</label>
                         <div style="display: flex; gap: 10px;">
@@ -392,11 +421,7 @@
                                 <option value="BMP280">BMP280</option>
                                 <option value="BME280">BME280</option>
                             </select>
-                            <select x-model.number="newI2c.i2c_address" style="width: 100px;">
-                                <option value="56">0x38 (AHT20)</option>
-                                <option value="118">0x76 (BMP280)</option>
-                                <option value="119">0x77 (BMP280)</option>
-                            </select>
+                            <input type="text" x-model.number="newI2c.i2c_address" placeholder="Dirección I2C" style="width: 100px;">
                             <input type="text" x-model="newI2c.name" placeholder="Nombre">
                             <button class="btn btn-success btn-sm" @click="addI2c()">+</button>
                         </div>

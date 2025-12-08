@@ -63,6 +63,10 @@ function app() {
         newDht: { pin: '', sensor_type: 'DHT11', name: '' },
         newI2c: { sensor_type: 'AHT20', i2c_address: 56, name: '' },
         newUltrasonic: { trig_pin: '', echo_pin: '', name: '' },
+
+        // I2C Scan
+        i2cScanResults: [],
+        isScanning: false,
         newFirmware: { version: '', description: '', file: null },
         passwordForm: { current: '', new: '' },
 
@@ -311,6 +315,12 @@ function app() {
                 case 'ota_status':
                     console.log('OTA Status:', data);
                     break;
+
+                case 'i2c_scan_result':
+                    console.log('Resultado escaneo I2C:', data.devices);
+                    this.i2cScanResults = data.devices;
+                    this.isScanning = false;
+                    break;
             }
         },
 
@@ -511,6 +521,28 @@ function app() {
             });
 
             this.deviceI2cs = this.deviceI2cs.filter(i => i.i2c_address !== address);
+        },
+
+        async scanI2c() {
+            if (!this.selectedDevice) return;
+
+            this.isScanning = true;
+            this.i2cScanResults = [];
+
+            try {
+                await this.api(`/api/devices/${this.selectedDevice.id}/i2c/scan`, {
+                    method: 'POST'
+                });
+                // Los resultados llegarán por WebSocket
+            } catch (err) {
+                console.error('Error solicitando escaneo I2C:', err);
+                this.isScanning = false;
+            }
+        },
+
+        selectI2cDevice(device) {
+            this.newI2c.sensor_type = device.sensor_type !== 'Unknown' ? device.sensor_type : 'AHT20';
+            this.newI2c.i2c_address = device.address;
         },
 
         // Ultrasonic

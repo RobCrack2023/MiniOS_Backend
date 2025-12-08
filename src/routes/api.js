@@ -230,6 +230,23 @@ async function apiRoutes(fastify, options) {
     return { success: true };
   });
 
+  // Solicitar escaneo del bus I2C
+  fastify.post('/devices/:id/i2c/scan', async (request, reply) => {
+    const { id } = request.params;
+    const device = db.getDeviceById(id);
+
+    if (!device) {
+      return reply.status(404).send({ error: 'Dispositivo no encontrado' });
+    }
+
+    // Enviar comando al ESP32 para escanear el bus I2C
+    sendCommandToDevice(device.mac_address, {
+      type: 'scan_i2c'
+    });
+
+    return { success: true, message: 'Escaneo I2C solicitado' };
+  });
+
   // ============================================
   // ULTRASONIC (HC-SR04)
   // ============================================
