@@ -98,7 +98,7 @@ function handleDeviceMessage(socket, data, setMac) {
 }
 
 function handleDeviceRegister(socket, data, setMac) {
-  const { firmware_version, ip_address } = data;
+  const { firmware_version, ip_address, board_model, board_family } = data;
 
   // Normalizar MAC address (mayúsculas, sin espacios)
   const mac_address = data.mac_address ? data.mac_address.toUpperCase().trim() : '';
@@ -116,13 +116,18 @@ function handleDeviceRegister(socket, data, setMac) {
     console.log(`✨ Nuevo dispositivo registrado: ${mac_address}`);
   }
 
-  // Actualizar estado
-  db.updateDevice(device.id, {
+  // Actualizar estado (incluye modelo de placa si viene del firmware)
+  const updateData = {
     firmware_version,
     ip_address,
     is_online: true,
     last_seen: new Date().toISOString()
-  });
+  };
+
+  if (board_model) updateData.board_model = board_model;
+  if (board_family) updateData.board_family = board_family;
+
+  db.updateDevice(device.id, updateData);
 
   // Guardar conexión
   connections.devices.set(mac_address, socket);
@@ -131,6 +136,7 @@ function handleDeviceRegister(socket, data, setMac) {
   // Obtener configuraciones
   const gpioConfigs = db.getGpioConfigs(device.id);
   const dhtConfigs = db.getDhtConfigs(device.id);
+  const i2cConfigs = db.getI2cConfigs(device.id);
   const ultrasonicConfigs = db.getUltrasonicConfigs(device.id);
 
   // Verificar si hay OTA pendiente
@@ -142,6 +148,7 @@ function handleDeviceRegister(socket, data, setMac) {
     device_id: device.id,
     gpio: gpioConfigs,
     dht: dhtConfigs,
+    i2c: i2cConfigs,
     ultrasonic: ultrasonicConfigs,
     ota: pendingOta.length > 0 ? pendingOta[0] : null
   }));
@@ -152,7 +159,8 @@ function handleDeviceRegister(socket, data, setMac) {
     device: db.getDeviceByMac(mac_address)
   });
 
-  console.log(`📱 Dispositivo conectado: ${mac_address} (${ip_address})`);
+  const modelInfo = board_model ? ` [${board_model}]` : '';
+  console.log(`📱 Dispositivo conectado: ${mac_address} (${ip_address})${modelInfo}`);
 }
 
 function handleDeviceData(socket, data) {
@@ -177,6 +185,33 @@ function handleDeviceData(socket, data) {
       }
     });
   }
+
+  // Guardar datos de sensores I2C (AHT20, BMP280, etc.)
+  if (payload.i2c && Array.isArray(payload.i2c)) {
+    console.log(`📊 Recibidos ${payload.i2c.length} sensores I2C de ${mac_address}`);
+    payload.i2c.forEach(sensor => {
+      console.log(`   I2C ${sensor.sensor_type} [0x${sensor.i2c_address.toString(16)}]: ${JSON.stringify({
+        temp: sensor.temperature,
+        hum: sensor.humidity,
+        pres: sensor.pressure,
+        alt: sensor.altitude
+      })}`);
+
+      if (sensor.temperature !== undefined) {
+        db.saveSensorData(device.id, 'temperature', sensor.temperature, sensor.id);
+      }
+      if (sensor.humidity !== undefined) {
+        db.saveSensorData(device.id, 'humidity', sensor.humidity, sensor.id);
+      }
+      if (sensor.pressure !== undefined) {
+        db.saveSensorData(device.id, 'pressure', sensor.pressure, sensor.id);
+      }
+      if (sensor.altitude !== undefined) {
+        db.saveSensorData(device.id, 'altitude', sensor.altitude, sensor.id);
+      }
+    });
+  }
+
   // Compatibilidad con formato antiguo
   if (payload.temperature !== undefined) {
     db.saveSensorData(device.id, 'temperature', payload.temperature);

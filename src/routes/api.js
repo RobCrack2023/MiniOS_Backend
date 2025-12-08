@@ -181,6 +181,56 @@ async function apiRoutes(fastify, options) {
   });
 
   // ============================================
+  // I2C SENSORS (AHT20, BMP280, etc.)
+  // ============================================
+
+  // Obtener configuración de sensores I2C
+  fastify.get('/devices/:id/i2c', async (request, reply) => {
+    const configs = db.getI2cConfigs(request.params.id);
+    return { i2c: configs };
+  });
+
+  // Configurar sensor I2C
+  fastify.post('/devices/:id/i2c', async (request, reply) => {
+    const { id } = request.params;
+    const device = db.getDeviceById(id);
+
+    if (!device) {
+      return reply.status(404).send({ error: 'Dispositivo no encontrado' });
+    }
+
+    db.setI2cConfig(id, request.body);
+
+    // Enviar configuración al dispositivo
+    const configs = db.getI2cConfigs(id);
+    sendCommandToDevice(device.mac_address, {
+      action: 'update_i2c',
+      i2c: configs
+    });
+
+    return { success: true, i2c: configs };
+  });
+
+  // Eliminar sensor I2C
+  fastify.delete('/devices/:id/i2c/:address', async (request, reply) => {
+    const { id, address } = request.params;
+    const device = db.getDeviceById(id);
+
+    if (!device) {
+      return reply.status(404).send({ error: 'Dispositivo no encontrado' });
+    }
+
+    db.deleteI2cConfig(id, parseInt(address));
+
+    sendCommandToDevice(device.mac_address, {
+      action: 'remove_i2c',
+      i2c_address: parseInt(address)
+    });
+
+    return { success: true };
+  });
+
+  // ============================================
   // ULTRASONIC (HC-SR04)
   // ============================================
 

@@ -67,6 +67,7 @@
                                 <div class="device-info">
                                     <p><strong>MAC:</strong> <span x-text="device.mac_address"></span></p>
                                     <p><strong>IP:</strong> <span x-text="device.ip_address || 'N/A'"></span></p>
+                                    <p><strong>Modelo:</strong> <span x-text="device.board_model || 'ESP32'" class="badge-model"></span></p>
                                     <p><strong>Firmware:</strong> <span x-text="device.firmware_version || 'N/A'"></span></p>
                                     <p><strong>Última conexión:</strong> <span x-text="device.last_seen ? formatDate(device.last_seen) : 'N/A'"></span></p>
                                 </div>
@@ -90,8 +91,42 @@
                                             </div>
                                         </template>
                                     </template>
+                                    <!-- Mostrar sensores I2C (AHT20, BMP280, etc.) -->
+                                    <template x-if="deviceData[device.mac_address]?.i2c && deviceData[device.mac_address].i2c.length > 0">
+                                        <template x-for="(sensor, index) in deviceData[device.mac_address].i2c" :key="'i2c-'+index">
+                                            <div class="sensor-group">
+                                                <div class="sensor-name" x-text="sensor.name || (sensor.sensor_type + ' [0x' + sensor.i2c_address.toString(16).toUpperCase() + ']')"></div>
+                                                <div class="sensor-values">
+                                                    <template x-if="sensor.temperature !== undefined">
+                                                        <div class="sensor">
+                                                            <div class="label">Temp</div>
+                                                            <div class="value" x-text="(sensor.temperature?.toFixed(1) || '--') + '°C'"></div>
+                                                        </div>
+                                                    </template>
+                                                    <template x-if="sensor.humidity !== undefined">
+                                                        <div class="sensor">
+                                                            <div class="label">Hum</div>
+                                                            <div class="value" x-text="(sensor.humidity?.toFixed(0) || '--') + '%'"></div>
+                                                        </div>
+                                                    </template>
+                                                    <template x-if="sensor.pressure !== undefined">
+                                                        <div class="sensor">
+                                                            <div class="label">Presión</div>
+                                                            <div class="value" x-text="(sensor.pressure?.toFixed(1) || '--') + ' hPa'"></div>
+                                                        </div>
+                                                    </template>
+                                                    <template x-if="sensor.altitude !== undefined">
+                                                        <div class="sensor">
+                                                            <div class="label">Altitud</div>
+                                                            <div class="value" x-text="(sensor.altitude?.toFixed(0) || '--') + ' m'"></div>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </template>
                                     <!-- Fallback para formato antiguo -->
-                                    <template x-if="!deviceData[device.mac_address]?.dht && deviceData[device.mac_address]?.temperature">
+                                    <template x-if="!deviceData[device.mac_address]?.dht && !deviceData[device.mac_address]?.i2c && deviceData[device.mac_address]?.temperature">
                                         <div class="sensor-group">
                                             <div class="sensor-values">
                                                 <div class="sensor">
@@ -223,6 +258,7 @@
                     <div class="tab" :class="{ active: deviceTab === 'info' }" @click="deviceTab = 'info'">Info</div>
                     <div class="tab" :class="{ active: deviceTab === 'gpio' }" @click="deviceTab = 'gpio'">GPIO</div>
                     <div class="tab" :class="{ active: deviceTab === 'dht' }" @click="deviceTab = 'dht'">DHT</div>
+                    <div class="tab" :class="{ active: deviceTab === 'i2c' }" @click="deviceTab = 'i2c'">I2C</div>
                     <div class="tab" :class="{ active: deviceTab === 'ultrasonic' }" @click="deviceTab = 'ultrasonic'">Ultrasonic</div>
                 </div>
 
@@ -242,9 +278,14 @@
                 <!-- GPIO Tab -->
                 <div class="tab-content" :class="{ active: deviceTab === 'gpio' }">
                     <div class="form-group">
-                        <label>Agregar GPIO</label>
+                        <label>Agregar GPIO <span class="text-gray" x-text="'(' + (selectedDevice?.board_model || 'ESP32') + ')'"></span></label>
                         <div style="display: flex; gap: 10px;">
-                            <input type="number" x-model="newGpio.pin" placeholder="Pin" style="width: 80px;">
+                            <select x-model="newGpio.pin" style="width: 100px;">
+                                <option value="">Pin</option>
+                                <template x-for="pin in availablePins" :key="pin">
+                                    <option :value="pin" x-text="'GPIO ' + pin"></option>
+                                </template>
+                            </select>
                             <select x-model="newGpio.mode">
                                 <option value="OUTPUT">OUTPUT</option>
                                 <option value="INPUT">INPUT</option>
@@ -300,9 +341,14 @@
                 <!-- DHT Tab -->
                 <div class="tab-content" :class="{ active: deviceTab === 'dht' }">
                     <div class="form-group">
-                        <label>Agregar Sensor DHT</label>
+                        <label>Agregar Sensor DHT <span class="text-gray" x-text="'(' + (selectedDevice?.board_model || 'ESP32') + ')'"></span></label>
                         <div style="display: flex; gap: 10px;">
-                            <input type="number" x-model="newDht.pin" placeholder="Pin" style="width: 80px;">
+                            <select x-model="newDht.pin" style="width: 100px;">
+                                <option value="">Pin</option>
+                                <template x-for="pin in availablePins" :key="pin">
+                                    <option :value="pin" x-text="'GPIO ' + pin"></option>
+                                </template>
+                            </select>
                             <select x-model="newDht.sensor_type">
                                 <option value="DHT11">DHT11</option>
                                 <option value="DHT22">DHT22</option>
@@ -329,6 +375,50 @@
                                     <td x-text="dht.sensor_type"></td>
                                     <td>
                                         <button class="btn btn-danger btn-sm" @click="deleteDht(dht.pin)">X</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- I2C Tab -->
+                <div class="tab-content" :class="{ active: deviceTab === 'i2c' }">
+                    <div class="form-group">
+                        <label>Agregar Sensor I2C</label>
+                        <div style="display: flex; gap: 10px;">
+                            <select x-model="newI2c.sensor_type" style="width: 120px;">
+                                <option value="AHT20">AHT20</option>
+                                <option value="BMP280">BMP280</option>
+                                <option value="BME280">BME280</option>
+                            </select>
+                            <select x-model.number="newI2c.i2c_address" style="width: 100px;">
+                                <option value="56">0x38 (AHT20)</option>
+                                <option value="118">0x76 (BMP280)</option>
+                                <option value="119">0x77 (BMP280)</option>
+                            </select>
+                            <input type="text" x-model="newI2c.name" placeholder="Nombre">
+                            <button class="btn btn-success btn-sm" @click="addI2c()">+</button>
+                        </div>
+                    </div>
+
+                    <table class="mt-20">
+                        <thead>
+                            <tr>
+                                <th>Tipo</th>
+                                <th>Dirección</th>
+                                <th>Nombre</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="i2c in deviceI2cs" :key="i2c.i2c_address">
+                                <tr>
+                                    <td x-text="i2c.sensor_type"></td>
+                                    <td x-text="'0x' + i2c.i2c_address.toString(16).toUpperCase()"></td>
+                                    <td x-text="i2c.name"></td>
+                                    <td>
+                                        <button class="btn btn-danger btn-sm" @click="deleteI2c(i2c.i2c_address)">X</button>
                                     </td>
                                 </tr>
                             </template>

@@ -21,6 +21,7 @@ function app() {
         deviceTab: 'info',
         deviceGpios: [],
         deviceDhts: [],
+        deviceI2cs: [],
         deviceUltrasonics: [],
 
         // Ultrasonic Detection Stats
@@ -60,9 +61,34 @@ function app() {
         // Forms
         newGpio: { pin: '', mode: 'OUTPUT', name: '' },
         newDht: { pin: '', sensor_type: 'DHT11', name: '' },
+        newI2c: { sensor_type: 'AHT20', i2c_address: 56, name: '' },
         newUltrasonic: { trig_pin: '', echo_pin: '', name: '' },
         newFirmware: { version: '', description: '', file: null },
         passwordForm: { current: '', new: '' },
+
+        // Board GPIO mappings
+        boardGpioPins: {
+            'ESP32': {
+                analog: [32, 33, 34, 35, 36, 39],
+                digital: [0, 2, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27],
+                all: [0, 2, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33, 34, 35, 36, 39]
+            },
+            'ESP32-S3': {
+                analog: [1, 2, 4, 5, 6, 7],
+                digital: [0, 3, 14, 15, 16, 17, 18, 19, 20, 21, 36, 37, 38, 39, 40, 41, 42, 45, 46],
+                all: [0, 1, 2, 3, 4, 5, 6, 7, 14, 15, 16, 17, 18, 19, 20, 21, 36, 37, 38, 39, 40, 41, 42, 45, 46]
+            },
+            'ESP32-C3': {
+                analog: [0, 1, 2, 3, 4],
+                digital: [5, 6, 7, 10, 18, 19, 20, 21],
+                all: [0, 1, 2, 3, 4, 5, 6, 7, 10, 18, 19, 20, 21]
+            },
+            'ESP32-S2': {
+                analog: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                digital: [0, 11, 12, 13, 14, 15, 16, 17, 18, 21, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42],
+                all: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42]
+            }
+        },
 
         // Computed
         get viewTitle() {
@@ -72,6 +98,24 @@ function app() {
                 settings: 'Configuración'
             };
             return titles[this.currentView] || '';
+        },
+
+        get availablePins() {
+            if (!this.selectedDevice) return [];
+            const boardModel = this.selectedDevice.board_model || 'ESP32';
+            return this.boardGpioPins[boardModel]?.all || this.boardGpioPins['ESP32'].all;
+        },
+
+        get availableDigitalPins() {
+            if (!this.selectedDevice) return [];
+            const boardModel = this.selectedDevice.board_model || 'ESP32';
+            return this.boardGpioPins[boardModel]?.digital || this.boardGpioPins['ESP32'].digital;
+        },
+
+        get availableAnalogPins() {
+            if (!this.selectedDevice) return [];
+            const boardModel = this.selectedDevice.board_model || 'ESP32';
+            return this.boardGpioPins[boardModel]?.analog || this.boardGpioPins['ESP32'].analog;
         },
 
         // Init
@@ -284,6 +328,7 @@ function app() {
             const data = await this.api(`/api/devices/${device.id}`);
             this.deviceGpios = data.gpio || [];
             this.deviceDhts = data.dht || [];
+            this.deviceI2cs = data.i2c || [];
             this.deviceUltrasonics = data.ultrasonic || [];
 
             // Reset ultrasonic state
@@ -444,6 +489,28 @@ function app() {
             });
 
             this.deviceDhts = this.deviceDhts.filter(d => d.pin !== pin);
+        },
+
+        // I2C Sensors
+        async addI2c() {
+            if (!this.newI2c.sensor_type || this.newI2c.i2c_address === '') return;
+
+            await this.api(`/api/devices/${this.selectedDevice.id}/i2c`, {
+                method: 'POST',
+                body: JSON.stringify(this.newI2c)
+            });
+
+            const data = await this.api(`/api/devices/${this.selectedDevice.id}/i2c`);
+            this.deviceI2cs = data.i2c;
+            this.newI2c = { sensor_type: 'AHT20', i2c_address: 56, name: '' };
+        },
+
+        async deleteI2c(address) {
+            await this.api(`/api/devices/${this.selectedDevice.id}/i2c/${address}`, {
+                method: 'DELETE'
+            });
+
+            this.deviceI2cs = this.deviceI2cs.filter(i => i.i2c_address !== address);
         },
 
         // Ultrasonic

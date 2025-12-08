@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS devices (
     description TEXT,
     firmware_version TEXT,
     ip_address TEXT,
+    board_model TEXT DEFAULT 'ESP32',           -- 🆕 Modelo de placa: ESP32, ESP32-S3, ESP32-C3, etc.
+    board_family TEXT DEFAULT 'ESP32',          -- 🆕 Familia del chip: ESP32, ESP32-S3, ESP32-C3, ESP32-S2
     is_online INTEGER DEFAULT 0,
     last_seen DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -51,6 +53,20 @@ CREATE TABLE IF NOT EXISTS dht_configs (
     active INTEGER DEFAULT 1,
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
     UNIQUE(device_id, pin)
+);
+
+-- 🆕 Configuración sensores I2C por dispositivo (AHT20, BMP280, BME280, etc.)
+CREATE TABLE IF NOT EXISTS i2c_configs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id INTEGER NOT NULL,
+    name TEXT DEFAULT 'Sensor I2C',
+    sensor_type TEXT NOT NULL,                  -- 'AHT20', 'BMP280', 'BME280'
+    i2c_address INTEGER NOT NULL,               -- Dirección I2C (hex): 0x38, 0x76, 0x77, etc.
+    read_interval INTEGER DEFAULT 5000,         -- Intervalo de lectura en ms
+    active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
+    UNIQUE(device_id, i2c_address)              -- Un sensor por dirección I2C por dispositivo
 );
 
 -- Configuración TFT por dispositivo
@@ -136,5 +152,6 @@ CREATE INDEX IF NOT EXISTS idx_sensor_data_recorded ON sensor_data(recorded_at);
 CREATE INDEX IF NOT EXISTS idx_devices_mac ON devices(mac_address);
 CREATE INDEX IF NOT EXISTS idx_ota_history_device ON ota_history(device_id);
 CREATE INDEX IF NOT EXISTS idx_ultrasonic_device ON ultrasonic_configs(device_id);
+CREATE INDEX IF NOT EXISTS idx_i2c_device ON i2c_configs(device_id);
 
 -- El primer usuario se crea via POST /api/auth/setup

@@ -91,6 +91,14 @@ function updateDevice(id, data) {
     fields.push('ip_address = ?');
     values.push(data.ip_address);
   }
+  if (data.board_model !== undefined) {
+    fields.push('board_model = ?');
+    values.push(data.board_model);
+  }
+  if (data.board_family !== undefined) {
+    fields.push('board_family = ?');
+    values.push(data.board_family);
+  }
   if (data.is_online !== undefined) {
     fields.push('is_online = ?');
     values.push(data.is_online ? 1 : 0);
@@ -219,6 +227,44 @@ function setDhtConfig(deviceId, config) {
 
 function deleteDhtConfig(deviceId, pin) {
   return db.prepare('DELETE FROM dht_configs WHERE device_id = ? AND pin = ?').run(deviceId, pin);
+}
+
+// ============================================
+// I2C CONFIGS
+// ============================================
+
+function getI2cConfigs(deviceId) {
+  const configs = db.prepare('SELECT * FROM i2c_configs WHERE device_id = ? ORDER BY id').all(deviceId);
+  // Convertir 0/1 de SQLite a booleanos para el frontend
+  return configs.map(config => ({
+    ...config,
+    active: Boolean(config.active)
+  }));
+}
+
+function setI2cConfig(deviceId, config) {
+  const stmt = db.prepare(`
+    INSERT INTO i2c_configs (device_id, name, sensor_type, i2c_address, read_interval, active)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(device_id, i2c_address) DO UPDATE SET
+      name = excluded.name,
+      sensor_type = excluded.sensor_type,
+      read_interval = excluded.read_interval,
+      active = excluded.active
+  `);
+
+  return stmt.run(
+    deviceId,
+    config.name || `Sensor I2C 0x${config.i2c_address.toString(16).toUpperCase()}`,
+    config.sensor_type,
+    config.i2c_address,
+    config.read_interval || 5000,
+    config.active === false ? 0 : 1
+  );
+}
+
+function deleteI2cConfig(deviceId, i2cAddress) {
+  return db.prepare('DELETE FROM i2c_configs WHERE device_id = ? AND i2c_address = ?').run(deviceId, i2cAddress);
 }
 
 // ============================================
@@ -567,6 +613,10 @@ module.exports = {
   getDhtConfigs,
   setDhtConfig,
   deleteDhtConfig,
+  // I2C
+  getI2cConfigs,
+  setI2cConfig,
+  deleteI2cConfig,
   // Sensor Data
   saveSensorData,
   getSensorData,
