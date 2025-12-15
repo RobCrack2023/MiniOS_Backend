@@ -699,12 +699,14 @@ function app() {
         },
 
         formatDate(dateString) {
+            // Mostrar en zona horaria del servidor (UTC-3: Argentina/Brasil)
             return new Date(dateString).toLocaleDateString('es-ES', {
                 year: 'numeric',
                 month: 'short',
                 day: 'numeric',
                 hour: '2-digit',
-                minute: '2-digit'
+                minute: '2-digit',
+                timeZone: 'America/Argentina/Buenos_Aires'
             });
         }
     };

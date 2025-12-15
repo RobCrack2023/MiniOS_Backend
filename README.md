@@ -27,7 +27,32 @@ Variables de entorno (opcional):
 ```bash
 PORT=3001
 JWT_SECRET=tu-clave-secreta-aqui
+TZ=America/Argentina/Buenos_Aires  # Zona horaria del servidor (UTC-3)
 ```
+
+### Zona Horaria
+
+El sistema está configurado por defecto para **UTC-3** (Argentina/Brasil). Los timestamps se muestran en esta zona horaria tanto en el dashboard como en los logs.
+
+Para cambiar la zona horaria:
+
+1. **En el servidor**: Establecer la variable de entorno `TZ` antes de iniciar:
+   ```bash
+   export TZ=America/Sao_Paulo  # Brasil (UTC-3)
+   # o
+   export TZ=America/Mexico_City  # México (UTC-6)
+   # o
+   export TZ=Europe/Madrid  # España (UTC+1/+2)
+
+   npm start
+   ```
+
+2. **En el frontend**: Editar `public/js/app.js` línea 709, cambiar la zona horaria:
+   ```javascript
+   timeZone: 'America/Argentina/Buenos_Aires'  // Cambiar aquí
+   ```
+
+**Nota**: Los timestamps se almacenan en UTC en la base de datos (buena práctica) y se convierten al mostrarlos.
 
 ## Primer Uso
 

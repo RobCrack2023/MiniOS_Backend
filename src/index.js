@@ -1,6 +1,9 @@
 const fastify = require('fastify')({ logger: true });
 const path = require('path');
 
+// Configurar zona horaria del servidor (UTC-3 para Argentina/Brasil)
+process.env.TZ = process.env.TZ || 'America/Argentina/Buenos_Aires';
+
 // Plugins
 const fastifyStatic = require('@fastify/static');
 const fastifyCors = require('@fastify/cors');
