@@ -175,6 +175,101 @@ server {
 }
 ```
 
+## Actualizar Servidor de Producción
+
+Para actualizar el servidor con los últimos cambios del repositorio:
+
+### Método 1: Con PM2 (Recomendado)
+
+```bash
+# Conectar al servidor VPS
+ssh usuario@tu-servidor.com
+
+# Ir al directorio del proyecto
+cd /ruta/a/MiniOS_Backend
+
+# Obtener los últimos cambios
+git pull origin main
+
+# Instalar nuevas dependencias (si las hay)
+npm install
+
+# Reiniciar la aplicación con PM2
+pm2 restart minios
+
+# Ver logs para verificar que funciona
+pm2 logs minios
+```
+
+### Método 2: Sin PM2
+
+```bash
+# Conectar al servidor VPS
+ssh usuario@tu-servidor.com
+
+# Ir al directorio del proyecto
+cd /ruta/a/MiniOS_Backend
+
+# Obtener los últimos cambios
+git pull origin main
+
+# Instalar nuevas dependencias (si las hay)
+npm install
+
+# Detener el proceso actual (Ctrl+C si está corriendo en terminal)
+# O encontrar y matar el proceso:
+pkill -f "node src/index.js"
+
+# Iniciar de nuevo
+npm start
+```
+
+### Verificación Post-Actualización
+
+```bash
+# Verificar que el servidor está corriendo
+pm2 status  # Si usas PM2
+
+# Probar el endpoint de salud (opcional, si lo tienes configurado)
+curl http://localhost:3001
+
+# Ver logs en tiempo real
+pm2 logs minios --lines 50  # Con PM2
+# o
+tail -f logs/app.log  # Si tienes logs configurados
+```
+
+### Rollback en Caso de Problemas
+
+Si algo sale mal después de actualizar:
+
+```bash
+# Ver commits recientes
+git log --oneline -5
+
+# Volver al commit anterior
+git reset --hard HEAD~1
+
+# Reiniciar aplicación
+pm2 restart minios
+```
+
+### Notas Importantes
+
+- **Backup**: Siempre haz backup de la base de datos antes de actualizar:
+  ```bash
+  cp minios.db minios.db.backup.$(date +%Y%m%d_%H%M%S)
+  ```
+
+- **Permisos**: Asegúrate de tener permisos de escritura en el directorio
+  ```bash
+  ls -la
+  ```
+
+- **Variables de Entorno**: Verifica que las variables de entorno sigan configuradas correctamente después de actualizar
+
+- **WebSocket**: Los cambios en WebSocket requieren que los dispositivos ESP32 se reconecten automáticamente
+
 ## Licencia
 
 MIT
