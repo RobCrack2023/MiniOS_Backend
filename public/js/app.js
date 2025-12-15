@@ -210,6 +210,10 @@ function app() {
                     const device = this.devices.find(d => d.mac_address === data.mac_address);
                     if (device) {
                         device.is_online = false;
+                        // Actualizar last_seen con el timestamp del backend (última conexión válida)
+                        if (data.last_seen) {
+                            device.last_seen = data.last_seen;
+                        }
                     }
                     break;
 
@@ -218,11 +222,14 @@ function app() {
                         ...this.deviceData[data.mac_address],
                         ...data.payload
                     };
-                    // Marcar dispositivo como online y actualizar timestamp
+                    // Marcar dispositivo como online y actualizar last_seen desde el backend
                     const deviceSending = this.devices.find(d => d.mac_address === data.mac_address);
                     if (deviceSending) {
                         deviceSending.is_online = true;
-                        deviceSending.last_seen = new Date().toISOString();
+                        // Actualizar last_seen con el timestamp del backend
+                        if (data.last_seen) {
+                            deviceSending.last_seen = data.last_seen;
+                        }
                     }
                     // Actualizar datos ultrasónicos si es el dispositivo seleccionado
                     if (this.selectedDevice && data.mac_address === this.selectedDevice.mac_address) {

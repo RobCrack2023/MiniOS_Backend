@@ -6,6 +6,13 @@ const connections = {
   dashboards: new Set()  // WebSockets del dashboard
 };
 
+// Almacenar timeouts de desconexión (para deep sleep)
+// MAC -> Timer ID
+const disconnectTimers = new Map();
+
+// Tiempo de gracia antes de marcar offline (2 minutos)
+const OFFLINE_GRACE_PERIOD = 2 * 60 * 1000; // 2 minutos en milisegundos
+
 function setupWebSocket(fastify) {
 
   // Endpoint para dispositivos ESP32
@@ -28,15 +35,31 @@ function setupWebSocket(fastify) {
     connection.socket.on('close', () => {
       if (deviceMac) {
         connections.devices.delete(deviceMac);
-        // Obtener dispositivo para preservar la IP al desconectar
-        const device = db.getDeviceByMac(deviceMac);
-        const lastIp = device ? device.ip_address : null;
-        db.updateDeviceStatus(deviceMac, false, lastIp);
-        broadcastToDashboards({
-          type: 'device_offline',
-          mac_address: deviceMac
-        });
-        console.log(`📴 Dispositivo desconectado: ${deviceMac}`);
+
+        // Iniciar timer de gracia para deep sleep (2 minutos)
+        // Solo marcar offline si no se reconecta en ese tiempo
+        console.log(`⏳ Dispositivo desconectado (esperando 2 min): ${deviceMac}`);
+
+        const timer = setTimeout(() => {
+          // Obtener dispositivo para preservar la IP al desconectar
+          const device = db.getDeviceByMac(deviceMac);
+          const lastIp = device ? device.ip_address : null;
+          db.updateDeviceStatus(deviceMac, false, lastIp);
+
+          // Obtener dispositivo actualizado con last_seen de la BD
+          const updatedDevice = db.getDeviceByMac(deviceMac);
+
+          broadcastToDashboards({
+            type: 'device_offline',
+            mac_address: deviceMac,
+            last_seen: updatedDevice ? updatedDevice.last_seen : null
+          });
+
+          disconnectTimers.delete(deviceMac);
+          console.log(`📴 Dispositivo marcado offline (timeout): ${deviceMac}`);
+        }, OFFLINE_GRACE_PERIOD);
+
+        disconnectTimers.set(deviceMac, timer);
       }
     });
   });
@@ -110,6 +133,13 @@ function handleDeviceRegister(socket, data, setMac) {
   if (!mac_address) {
     console.error('❌ Registro sin MAC address');
     return;
+  }
+
+  // Cancelar timer de desconexión si existe (dispositivo se reconectó antes del timeout)
+  if (disconnectTimers.has(mac_address)) {
+    clearTimeout(disconnectTimers.get(mac_address));
+    disconnectTimers.delete(mac_address);
+    console.log(`✅ Dispositivo reconectado (cancelado timeout): ${mac_address}`);
   }
 
   // Buscar o crear dispositivo
@@ -262,6 +292,9 @@ function handleDeviceData(socket, data) {
   // Actualizar last_seen (preservando la IP existente)
   db.updateDeviceStatus(mac_address, true, device.ip_address);
 
+  // Obtener dispositivo actualizado con el nuevo last_seen
+  const updatedDevice = db.getDeviceByMac(mac_address);
+
   // Preparar payload para dashboard (extraer temperatura/humedad del primer sensor DHT)
   const dashboardPayload = { ...payload };
   if (payload.dht && payload.dht.length > 0) {
@@ -269,11 +302,12 @@ function handleDeviceData(socket, data) {
     dashboardPayload.humidity = payload.dht[0].humidity;
   }
 
-  // Enviar a dashboards
+  // Enviar a dashboards (incluir last_seen actualizado)
   broadcastToDashboards({
     type: 'device_data',
     mac_address,
     device_id: device.id,
+    last_seen: updatedDevice ? updatedDevice.last_seen : null,
     payload: dashboardPayload
   });
 }
