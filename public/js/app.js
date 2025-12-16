@@ -67,6 +67,8 @@ function app() {
         // I2C Scan
         i2cScanResults: [],
         isScanning: false,
+        scanTimeout: null,
+        scanMessage: '',
         newFirmware: { version: '', description: '', file: null },
         passwordForm: { current: '', new: '' },
 
@@ -327,6 +329,21 @@ function app() {
                     console.log('Resultado escaneo I2C:', data.devices);
                     this.i2cScanResults = data.devices;
                     this.isScanning = false;
+
+                    // Limpiar timeout
+                    if (this.scanTimeout) {
+                        clearTimeout(this.scanTimeout);
+                        this.scanTimeout = null;
+                    }
+
+                    // Mostrar mensaje según resultados
+                    if (data.devices.length === 0) {
+                        this.scanMessage = '⚠️ No se encontraron dispositivos I2C. Verifica las conexiones (SDA/SCL).';
+                        setTimeout(() => { this.scanMessage = ''; }, 5000);
+                    } else {
+                        this.scanMessage = `✅ Se encontraron ${data.devices.length} dispositivo(s) I2C`;
+                        setTimeout(() => { this.scanMessage = ''; }, 3000);
+                    }
                     break;
             }
         },
@@ -533,23 +550,88 @@ function app() {
         async scanI2c() {
             if (!this.selectedDevice) return;
 
-            this.isScanning = true;
-            this.i2cScanResults = [];
+            // Verificar si el dispositivo está online
+            if (!this.selectedDevice.is_online) {
+                this.scanMessage = '⚠️ Dispositivo en Deep Sleep. Esperando a que despierte...';
+                this.isScanning = true;
+                this.i2cScanResults = [];
+            } else {
+                this.scanMessage = '🔍 Escaneando bus I2C...';
+                this.isScanning = true;
+                this.i2cScanResults = [];
+            }
+
+            // Configurar timeout de 80 segundos
+            // (60s Deep Sleep + 20s tareas + 15s ventana de comandos = ~95s max)
+            if (this.scanTimeout) {
+                clearTimeout(this.scanTimeout);
+            }
+
+            this.scanTimeout = setTimeout(() => {
+                if (this.isScanning) {
+                    this.isScanning = false;
+                    this.scanMessage = '❌ Timeout: El dispositivo no respondió. Verifica que esté encendido y conectado.';
+                    setTimeout(() => { this.scanMessage = ''; }, 5000);
+                }
+            }, 80000); // 80 segundos
 
             try {
                 await this.api(`/api/devices/${this.selectedDevice.id}/i2c/scan`, {
                     method: 'POST'
                 });
                 // Los resultados llegarán por WebSocket
+                this.scanMessage = '⏳ Comando enviado. Esperando respuesta del dispositivo...';
             } catch (err) {
                 console.error('Error solicitando escaneo I2C:', err);
                 this.isScanning = false;
+                this.scanMessage = '❌ Error al solicitar escaneo: ' + err.message;
+                setTimeout(() => { this.scanMessage = ''; }, 5000);
+                if (this.scanTimeout) {
+                    clearTimeout(this.scanTimeout);
+                }
             }
         },
 
         selectI2cDevice(device) {
             this.newI2c.sensor_type = device.sensor_type !== 'Unknown' ? device.sensor_type : 'AHT20';
             this.newI2c.i2c_address = device.address;
+
+            // Generar nombre sugerido si está vacío
+            if (!this.newI2c.name) {
+                const sensorName = device.sensor_type !== 'Unknown' ? device.sensor_type : 'Sensor';
+                this.newI2c.name = `${sensorName} 0x${device.address.toString(16).toUpperCase()}`;
+            }
+
+            this.scanMessage = `✅ Sensor seleccionado. Completa el nombre y haz clic en "+"`;
+            setTimeout(() => { this.scanMessage = ''; }, 3000);
+        },
+
+        async addI2cAuto(device) {
+            // Agregar sensor I2C automáticamente con un solo clic
+            const sensorName = device.sensor_type !== 'Unknown' ? device.sensor_type : 'Sensor';
+            const autoName = `${sensorName} 0x${device.address.toString(16).toUpperCase()}`;
+
+            const i2cData = {
+                sensor_type: device.sensor_type !== 'Unknown' ? device.sensor_type : 'AHT20',
+                i2c_address: device.address,
+                name: autoName,
+                active: true,
+                read_interval: 5000
+            };
+
+            await this.api(`/api/devices/${this.selectedDevice.id}/i2c`, {
+                method: 'POST',
+                body: JSON.stringify(i2cData)
+            });
+
+            await this.loadDeviceConfig(this.selectedDevice.id);
+
+            // Limpiar resultados después de agregar
+            this.scanMessage = `✅ ${autoName} agregado correctamente`;
+            setTimeout(() => {
+                this.scanMessage = '';
+                this.i2cScanResults = [];
+            }, 3000);
         },
 
         // Ultrasonic

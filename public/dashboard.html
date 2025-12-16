@@ -392,22 +392,38 @@
                         </button>
                     </div>
 
+                    <!-- Mensajes de estado -->
+                    <div x-show="scanMessage" class="form-group"
+                         style="padding: 12px; border-radius: 8px; margin-bottom: 15px;"
+                         :style="scanMessage.includes('❌') ? 'background: #ffebee; color: #c62828;' :
+                                 scanMessage.includes('✅') ? 'background: #e8f5e9; color: #2e7d32;' :
+                                 scanMessage.includes('⚠️') ? 'background: #fff3e0; color: #ef6c00;' :
+                                 'background: #e3f2fd; color: #1565c0;'">
+                        <strong x-text="scanMessage"></strong>
+                    </div>
+
                     <!-- Resultados del escaneo -->
                     <div x-show="i2cScanResults.length > 0" class="form-group" style="margin-bottom: 20px; padding: 10px; background: #f0f8ff; border-radius: 8px;">
-                        <label>Dispositivos I2C Detectados</label>
+                        <label style="font-weight: 600; color: #1565c0; margin-bottom: 10px;">📋 Dispositivos I2C Detectados</label>
                         <div style="display: flex; flex-direction: column; gap: 8px;">
                             <template x-for="device in i2cScanResults" :key="device.address">
-                                <div style="display: flex; align-items: center; gap: 10px; padding: 8px; background: white; border-radius: 4px; cursor: pointer;"
-                                     @click="selectI2cDevice(device)">
+                                <div style="display: flex; align-items: center; gap: 10px; padding: 12px; background: white; border-radius: 6px; border: 2px solid #e0e0e0;">
                                     <div style="flex: 1;">
-                                        <strong x-text="'0x' + device.address.toString(16).toUpperCase().padStart(2, '0')"></strong>
-                                        <span x-show="device.sensor_type !== 'Unknown'"
-                                              x-text="' - ' + device.sensor_type"
-                                              style="color: #4CAF50; font-weight: 600;"></span>
-                                        <span x-show="device.sensor_type === 'Unknown'"
-                                              style="color: #999;"> - Desconocido</span>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <strong style="font-size: 1.1em; color: #1976d2;" x-text="'0x' + device.address.toString(16).toUpperCase().padStart(2, '0')"></strong>
+                                            <span x-show="device.sensor_type !== 'Unknown'"
+                                                  x-text="' → ' + device.sensor_type"
+                                                  style="color: #4CAF50; font-weight: 600;"></span>
+                                            <span x-show="device.sensor_type === 'Unknown'"
+                                                  style="color: #999; font-style: italic;"> → Desconocido</span>
+                                        </div>
                                     </div>
-                                    <button class="btn btn-success btn-sm" @click.stop="selectI2cDevice(device)">Seleccionar</button>
+                                    <button class="btn btn-success btn-sm" @click.stop="addI2cAuto(device)" style="margin-right: 5px;">
+                                        ➕ Agregar
+                                    </button>
+                                    <button class="btn btn-primary btn-sm" @click.stop="selectI2cDevice(device)">
+                                        ✏️ Personalizar
+                                    </button>
                                 </div>
                             </template>
                         </div>
