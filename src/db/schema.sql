@@ -146,6 +146,16 @@ CREATE TABLE IF NOT EXISTS ota_history (
     FOREIGN KEY (firmware_id) REFERENCES firmware(id) ON DELETE CASCADE
 );
 
+-- Configuración del sistema
+CREATE TABLE IF NOT EXISTS system_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Insertar configuración por defecto (timezone de Chile)
+INSERT OR IGNORE INTO system_settings (key, value) VALUES ('timezone', 'America/Santiago');
+
 -- Índices para mejorar rendimiento
 CREATE INDEX IF NOT EXISTS idx_sensor_data_device ON sensor_data(device_id);
 CREATE INDEX IF NOT EXISTS idx_sensor_data_recorded ON sensor_data(recorded_at);

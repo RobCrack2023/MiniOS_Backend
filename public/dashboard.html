@@ -227,6 +227,51 @@
             <div x-show="currentView === 'settings'">
                 <div class="table-container">
                     <div style="padding: 20px;">
+                        <!-- Configuración de Zona Horaria -->
+                        <h3>Zona Horaria</h3>
+                        <form @submit.prevent="saveTimezone()" class="mt-20" style="margin-bottom: 40px;">
+                            <div class="form-group">
+                                <label>Seleccionar Zona Horaria</label>
+                                <select x-model="timezoneForm.timezone" required>
+                                    <optgroup label="Chile">
+                                        <option value="America/Santiago">Chile Continental (UTC-4/-3)</option>
+                                        <option value="Pacific/Easter">Isla de Pascua (UTC-6/-5)</option>
+                                    </optgroup>
+                                    <optgroup label="Argentina">
+                                        <option value="America/Argentina/Buenos_Aires">Buenos Aires (UTC-3)</option>
+                                        <option value="America/Argentina/Cordoba">Córdoba (UTC-3)</option>
+                                        <option value="America/Argentina/Mendoza">Mendoza (UTC-3)</option>
+                                    </optgroup>
+                                    <optgroup label="Brasil">
+                                        <option value="America/Sao_Paulo">São Paulo (UTC-3)</option>
+                                        <option value="America/Manaus">Manaus (UTC-4)</option>
+                                        <option value="America/Fortaleza">Fortaleza (UTC-3)</option>
+                                    </optgroup>
+                                    <optgroup label="Otros América Latina">
+                                        <option value="America/Lima">Perú (UTC-5)</option>
+                                        <option value="America/Bogota">Colombia (UTC-5)</option>
+                                        <option value="America/Caracas">Venezuela (UTC-4)</option>
+                                        <option value="America/Mexico_City">México (UTC-6)</option>
+                                        <option value="America/Montevideo">Uruguay (UTC-3)</option>
+                                    </optgroup>
+                                    <optgroup label="UTC">
+                                        <option value="UTC">UTC (Sin ajuste)</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <p style="color: #666; font-size: 14px;">
+                                    Zona horaria actual: <strong x-text="timezoneForm.timezone"></strong>
+                                </p>
+                                <p style="color: #ff9800; font-size: 14px; margin-top: 10px;">
+                                    ⚠️ Nota: Los cambios se aplicarán inmediatamente, pero se recomienda reiniciar el servidor para asegurar la sincronización completa.
+                                </p>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Guardar Zona Horaria</button>
+                        </form>
+
+                        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+
                         <h3>Cambiar Contraseña</h3>
                         <form @submit.prevent="changePassword()" class="mt-20">
                             <div class="form-group">

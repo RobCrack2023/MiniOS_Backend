@@ -594,6 +594,29 @@ function clearDetectionBuffer(deviceId, sensorId) {
   detectionBuffers.delete(key);
 }
 
+// ============================================
+// CONFIGURACIÓN DEL SISTEMA
+// ============================================
+
+function getSetting(key) {
+  const setting = db.prepare('SELECT value FROM system_settings WHERE key = ?').get(key);
+  return setting ? setting.value : null;
+}
+
+function setSetting(key, value) {
+  const stmt = db.prepare(`
+    INSERT INTO system_settings (key, value, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP
+  `);
+  stmt.run(key, value, value);
+  return { key, value };
+}
+
+function getAllSettings() {
+  return db.prepare('SELECT key, value FROM system_settings').all();
+}
+
 module.exports = {
   initDatabase,
   getDatabase,
@@ -643,5 +666,9 @@ module.exports = {
   // Detection Analysis
   addDistanceReading,
   analyzeDetection,
-  clearDetectionBuffer
+  clearDetectionBuffer,
+  // System Settings
+  getSetting,
+  setSetting,
+  getAllSettings
 };

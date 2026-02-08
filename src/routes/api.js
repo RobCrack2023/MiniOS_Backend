@@ -3,7 +3,23 @@ const { sendCommandToDevice, broadcastToDashboards } = require('../websocket');
 
 async function apiRoutes(fastify, options) {
 
-  // Middleware de autenticación para todas las rutas
+  // ============================================
+  // TIEMPO DEL SISTEMA (sin autenticación para ESP32)
+  // ============================================
+
+  // Endpoint para que ESP32 obtenga la hora actual del servidor
+  fastify.get('/time', async (request, reply) => {
+    const timezone = db.getSetting('timezone') || 'America/Santiago';
+    const timestamp = Math.floor(Date.now() / 1000); // Unix timestamp en segundos
+
+    return {
+      timestamp,
+      timezone,
+      iso: new Date().toISOString()
+    };
+  });
+
+  // Middleware de autenticación para todas las rutas siguientes
   fastify.addHook('preHandler', fastify.authenticate);
 
   // ============================================
@@ -368,6 +384,53 @@ async function apiRoutes(fastify, options) {
       offline_devices: devices.length - online,
       firmware_versions: firmware.length
     };
+  });
+
+  // ============================================
+  // CONFIGURACIÓN DEL SISTEMA
+  // ============================================
+
+  // Obtener configuración de timezone
+  fastify.get('/settings/timezone', async (request, reply) => {
+    const timezone = db.getSetting('timezone') || 'America/Santiago';
+    return { timezone };
+  });
+
+  // Actualizar timezone
+  fastify.put('/settings/timezone', async (request, reply) => {
+    const { timezone } = request.body;
+
+    if (!timezone) {
+      return reply.status(400).send({ error: 'Se requiere el campo timezone' });
+    }
+
+    // Validar que sea una timezone válida
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: timezone });
+    } catch (error) {
+      return reply.status(400).send({ error: 'Timezone inválida' });
+    }
+
+    db.setSetting('timezone', timezone);
+
+    // Actualizar la variable de entorno del proceso (requiere reinicio para aplicarse completamente)
+    process.env.TZ = timezone;
+
+    return {
+      success: true,
+      timezone,
+      message: 'Timezone actualizada. Se recomienda reiniciar el servidor para aplicar completamente el cambio.'
+    };
+  });
+
+  // Obtener todas las configuraciones
+  fastify.get('/settings', async (request, reply) => {
+    const settings = db.getAllSettings();
+    const settingsObj = {};
+    settings.forEach(s => {
+      settingsObj[s.key] = s.value;
+    });
+    return { settings: settingsObj };
   });
 }
 

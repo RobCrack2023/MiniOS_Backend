@@ -1,9 +1,6 @@
 const fastify = require('fastify')({ logger: true });
 const path = require('path');
 
-// Configurar zona horaria del servidor (UTC-3 para Argentina/Brasil)
-process.env.TZ = process.env.TZ || 'America/Argentina/Buenos_Aires';
-
 // Plugins
 const fastifyStatic = require('@fastify/static');
 const fastifyCors = require('@fastify/cors');
@@ -26,6 +23,11 @@ async function start() {
     // Inicializar base de datos
     const db = initDatabase();
     fastify.decorate('db', db);
+
+    // Configurar zona horaria desde la base de datos
+    const timezone = db.getSetting('timezone') || 'America/Santiago';
+    process.env.TZ = timezone;
+    console.log(`🌍 Zona horaria configurada: ${timezone}`);
 
     // Registrar plugins
     await fastify.register(fastifyCors, {

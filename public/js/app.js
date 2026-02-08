@@ -71,6 +71,7 @@ function app() {
         scanMessage: '',
         newFirmware: { version: '', description: '', file: null },
         passwordForm: { current: '', new: '' },
+        timezoneForm: { timezone: 'America/Santiago' },
 
         // Board GPIO mappings
         boardGpioPins: {
@@ -143,6 +144,7 @@ function app() {
             // Cargar datos
             await this.loadDevices();
             await this.loadFirmware();
+            await this.loadTimezone();
 
             // Conectar WebSocket
             this.connectWebSocket();
@@ -781,15 +783,44 @@ function app() {
         },
 
         formatDate(dateString) {
-            // Mostrar en zona horaria del servidor (UTC-3: Argentina/Brasil)
+            // Mostrar en zona horaria configurada en el servidor
             return new Date(dateString).toLocaleDateString('es-ES', {
                 year: 'numeric',
                 month: 'short',
                 day: 'numeric',
                 hour: '2-digit',
                 minute: '2-digit',
-                timeZone: 'America/Argentina/Buenos_Aires'
+                timeZone: this.timezoneForm.timezone
             });
+        },
+
+        // Cargar timezone
+        async loadTimezone() {
+            try {
+                const data = await this.api('/api/settings/timezone');
+                this.timezoneForm.timezone = data.timezone;
+            } catch (error) {
+                console.error('Error cargando timezone:', error);
+            }
+        },
+
+        // Guardar timezone
+        async saveTimezone() {
+            try {
+                const data = await this.api('/api/settings/timezone', {
+                    method: 'PUT',
+                    body: JSON.stringify({ timezone: this.timezoneForm.timezone })
+                });
+
+                if (data.success) {
+                    alert('Zona horaria actualizada correctamente.\n\n' + data.message);
+                } else {
+                    alert('Error al actualizar la zona horaria');
+                }
+            } catch (error) {
+                console.error('Error guardando timezone:', error);
+                alert('Error al guardar la zona horaria: ' + error.message);
+            }
         }
     };
 }
