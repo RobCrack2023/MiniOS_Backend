@@ -3,23 +3,7 @@ const { sendCommandToDevice, broadcastToDashboards } = require('../websocket');
 
 async function apiRoutes(fastify, options) {
 
-  // ============================================
-  // TIEMPO DEL SISTEMA (sin autenticación para ESP32)
-  // ============================================
-
-  // Endpoint para que ESP32 obtenga la hora actual del servidor
-  fastify.get('/time', async (request, reply) => {
-    const timezone = db.getSetting('timezone') || 'America/Santiago';
-    const timestamp = Math.floor(Date.now() / 1000); // Unix timestamp en segundos
-
-    return {
-      timestamp,
-      timezone,
-      iso: new Date().toISOString()
-    };
-  });
-
-  // Middleware de autenticación para todas las rutas siguientes
+  // Middleware de autenticación para todas las rutas
   fastify.addHook('preHandler', fastify.authenticate);
 
   // ============================================

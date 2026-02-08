@@ -9,7 +9,7 @@ const fastifyWebsocket = require('@fastify/websocket');
 const fastifyMultipart = require('@fastify/multipart');
 
 // Módulos internos
-const { initDatabase } = require('./db/database');
+const { initDatabase, getSetting } = require('./db/database');
 const { setupWebSocket } = require('./websocket');
 const apiRoutes = require('./routes/api');
 const authRoutes = require('./routes/auth');
@@ -25,7 +25,7 @@ async function start() {
     fastify.decorate('db', db);
 
     // Configurar zona horaria desde la base de datos
-    const timezone = db.getSetting('timezone') || 'America/Santiago';
+    const timezone = getSetting('timezone') || 'America/Santiago';
     process.env.TZ = timezone;
     console.log(`🌍 Zona horaria configurada: ${timezone}`);
 
@@ -63,6 +63,17 @@ async function start() {
 
     // Configurar WebSocket
     setupWebSocket(fastify);
+
+    // Endpoint público para sincronización de tiempo (sin autenticación)
+    fastify.get('/api/time', async (request, reply) => {
+      const timezone = getSetting('timezone') || 'America/Santiago';
+      const timestamp = Math.floor(Date.now() / 1000);
+      return {
+        timestamp,
+        timezone,
+        iso: new Date().toISOString()
+      };
+    });
 
     // Registrar rutas
     await fastify.register(authRoutes, { prefix: '/api/auth' });
