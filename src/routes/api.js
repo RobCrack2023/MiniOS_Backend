@@ -1,5 +1,5 @@
 const db = require('../db/database');
-const { sendCommandToDevice, broadcastToDashboards } = require('../websocket');
+const { sendCommandToDevice, sendOrQueueCommand, broadcastToDashboards } = require('../websocket');
 
 async function apiRoutes(fastify, options) {
 
@@ -26,12 +26,14 @@ async function apiRoutes(fastify, options) {
     // Incluir configuraciones
     const gpioConfigs = db.getGpioConfigs(device.id);
     const dhtConfigs = db.getDhtConfigs(device.id);
+    const i2cConfigs = db.getI2cConfigs(device.id);
     const ultrasonicConfigs = db.getUltrasonicConfigs(device.id);
 
     return {
       device,
       gpio: gpioConfigs,
       dht: dhtConfigs,
+      i2c: i2cConfigs,
       ultrasonic: ultrasonicConfigs
     };
   });
@@ -117,17 +119,10 @@ async function apiRoutes(fastify, options) {
       return reply.status(404).send({ error: 'Dispositivo no encontrado' });
     }
 
-    const sent = sendCommandToDevice(device.mac_address, {
-      action: 'set_gpio',
-      pin: parseInt(pin),
-      value
-    });
+    const command = { action: 'set_gpio', pin: parseInt(pin), value };
+    const sent = sendOrQueueCommand(device.id, device.mac_address, command);
 
-    if (!sent) {
-      return reply.status(503).send({ error: 'Dispositivo no conectado' });
-    }
-
-    return { success: true };
+    return { success: true, queued: !sent };
   });
 
   // ============================================
@@ -240,11 +235,15 @@ async function apiRoutes(fastify, options) {
     }
 
     // Enviar comando al ESP32 para escanear el bus I2C
-    sendCommandToDevice(device.mac_address, {
-      type: 'scan_i2c'
+    const sent = sendOrQueueCommand(device.id, device.mac_address, {
+      action: 'scan_i2c'
     });
 
-    return { success: true, message: 'Escaneo I2C solicitado' };
+    return {
+      success: true,
+      queued: !sent,
+      message: sent ? 'Escaneo I2C solicitado' : 'Dispositivo offline — escaneo encolado para próxima conexión'
+    };
   });
 
   // ============================================
@@ -345,15 +344,14 @@ async function apiRoutes(fastify, options) {
       return reply.status(404).send({ error: 'Dispositivo no encontrado' });
     }
 
-    const sent = sendCommandToDevice(device.mac_address, {
-      action: 'reboot'
-    });
+    const command = { action: 'reboot' };
+    const sent = sendOrQueueCommand(device.id, device.mac_address, command);
 
-    if (!sent) {
-      return reply.status(503).send({ error: 'Dispositivo no conectado' });
-    }
-
-    return { success: true, message: 'Comando de reinicio enviado' };
+    return {
+      success: true,
+      queued: !sent,
+      message: sent ? 'Comando de reinicio enviado' : 'Dispositivo offline — reinicio encolado para próxima conexión'
+    };
   });
 
   // Obtener información del sistema
@@ -397,13 +395,10 @@ async function apiRoutes(fastify, options) {
 
     db.setSetting('timezone', timezone);
 
-    // Actualizar la variable de entorno del proceso (requiere reinicio para aplicarse completamente)
-    process.env.TZ = timezone;
-
     return {
       success: true,
       timezone,
-      message: 'Timezone actualizada. Se recomienda reiniciar el servidor para aplicar completamente el cambio.'
+      message: 'Timezone actualizada. El dashboard mostrará los horarios en la zona seleccionada.'
     };
   });
 

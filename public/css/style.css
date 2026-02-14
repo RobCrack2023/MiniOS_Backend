@@ -114,6 +114,15 @@ body {
     color: white;
 }
 
+.btn-secondary {
+    background: #78909c;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #546e7a;
+}
+
 .btn-sm {
     padding: 5px 10px;
     font-size: 12px;

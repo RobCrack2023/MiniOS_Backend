@@ -149,6 +149,9 @@
                                     <button class="btn btn-primary btn-sm" @click="openDeviceModal(device)">
                                         Config
                                     </button>
+                                    <button class="btn btn-secondary btn-sm" @click="openHistoryModal(device)">
+                                        Historial
+                                    </button>
                                     <button class="btn btn-danger btn-sm" @click="rebootDevice(device)" :disabled="!device.is_online">
                                         Reiniciar
                                     </button>
@@ -514,60 +517,6 @@
 
                 <!-- Ultrasonic Tab -->
                 <div class="tab-content" :class="{ active: deviceTab === 'ultrasonic' }">
-                    <!-- Detection Stats Panel -->
-                    <div class="detection-stats-panel" x-show="deviceUltrasonics.length > 0">
-                        <!-- Estado actual -->
-                        <div class="stats-row current-status">
-                            <div class="stat-card" :class="{ 'active': gpioTriggered }">
-                                <span class="stat-icon">⚡</span>
-                                <span class="stat-label">GPIO Trigger</span>
-                                <span class="stat-value" :class="gpioTriggered ? 'on' : 'off'" x-text="gpioTriggered ? 'ACTIVO' : 'Inactivo'"></span>
-                            </div>
-                            <div class="stat-card">
-                                <span class="stat-icon">📏</span>
-                                <span class="stat-label">Distancia</span>
-                                <span class="stat-value" x-text="(currentDistance !== null ? currentDistance + ' cm' : '--')"></span>
-                            </div>
-                            <div class="stat-card">
-                                <span class="stat-icon">💨</span>
-                                <span class="stat-label">Velocidad</span>
-                                <span class="stat-value" x-text="currentSpeed + ' cm/s'"></span>
-                            </div>
-                        </div>
-
-                        <!-- Estado de detección -->
-                        <div class="detection-badge" :class="{ 'detected': isObjectDetected, 'idle': !isObjectDetected }">
-                            <span class="badge-icon" x-text="isObjectDetected ? animalIcon(detectedAnimal) : '😴'"></span>
-                            <span class="badge-text" x-text="isObjectDetected ? (detectedAnimal === 'detecting' ? 'Clasificando...' : detectedAnimal === 'mouse' ? 'Ratón detectado' : detectedAnimal === 'cat' ? 'Gato/Perro detectado' : 'Movimiento detectado') : 'Sin detección'"></span>
-                        </div>
-
-                        <!-- Contadores -->
-                        <div class="stats-row counters">
-                            <div class="counter-card">
-                                <span class="counter-value" x-text="detectionStats.total"></span>
-                                <span class="counter-label">Total</span>
-                            </div>
-                            <div class="counter-card mouse">
-                                <span class="counter-icon">🐭</span>
-                                <span class="counter-value" x-text="detectionStats.mice"></span>
-                                <span class="counter-label">Ratones</span>
-                            </div>
-                            <div class="counter-card cat">
-                                <span class="counter-icon">🐱</span>
-                                <span class="counter-value" x-text="detectionStats.cats"></span>
-                                <span class="counter-label">Gatos</span>
-                            </div>
-                        </div>
-
-                        <!-- Última detección -->
-                        <div class="last-detection" x-show="detectionStats.lastDetection">
-                            <span class="label">Última detección:</span>
-                            <span class="value" x-text="timeAgo(detectionStats.lastDetection)"></span>
-                            <span class="animal" x-text="animalIcon(detectionStats.lastAnimal)"></span>
-                        </div>
-
-                        <button class="btn btn-sm" @click="resetDetectionStats()" style="margin-top: 10px;">Resetear contadores</button>
-                    </div>
 
                     <!-- Add Ultrasonic Form -->
                     <div class="form-group mt-20">
@@ -619,25 +568,7 @@
                                     </div>
                                 </div>
 
-                                <!-- Smart Detection -->
-                                <div class="config-section">
-                                    <h5>Detección Inteligente</h5>
-                                    <div class="config-row">
-                                        <label>
-                                            <input type="checkbox" x-model="ultrasonic.smart_detection_enabled" @change="updateUltrasonic(ultrasonic)">
-                                            Habilitar detección inteligente
-                                        </label>
-                                    </div>
-                                    <div class="config-row" x-show="ultrasonic.smart_detection_enabled">
-                                        <label>Detectar:</label>
-                                        <select x-model="ultrasonic.animal_type" @change="updateUltrasonic(ultrasonic)">
-                                            <option value="any">Cualquiera</option>
-                                            <option value="cat">Solo Gatos</option>
-                                            <option value="mouse">Solo Ratones</option>
-                                            <option value="both">Gatos y Ratones</option>
-                                        </select>
-                                    </div>
-                                </div>
+
                             </div>
                         </div>
                     </template>
@@ -663,42 +594,17 @@
             <div class="control-panel-body">
                 <!-- Top Row: Radar + Sensors -->
                 <div class="control-panel-grid">
-                    <!-- Detection Stats Section -->
+                    <!-- Ultrasonic Section -->
                     <div class="panel-section stats-section" x-show="panelUltrasonics.length > 0">
                         <h3>Sensor Ultrasónico</h3>
-
-                        <!-- Estado GPIO -->
-                        <div class="panel-gpio-status" :class="{ 'active': panelGpioTriggered }">
-                            <span class="status-icon">⚡</span>
-                            <span class="status-text" x-text="panelGpioTriggered ? 'GPIO ACTIVO' : 'GPIO Inactivo'"></span>
-                        </div>
-
-                        <!-- Métricas actuales -->
-                        <div class="panel-metrics">
-                            <div class="metric">
-                                <span class="metric-value" x-text="(panelDistance !== null ? panelDistance : '--')"></span>
-                                <span class="metric-unit">cm</span>
-                                <span class="metric-label">Distancia</span>
+                        <template x-for="u in panelUltrasonics" :key="u.id">
+                            <div class="sensor-card-large">
+                                <div class="sensor-card-name" x-text="u.name"></div>
+                                <div style="font-size: 0.85em; color: #666;">
+                                    TRIG: <strong x-text="u.trig_pin"></strong> &nbsp; ECHO: <strong x-text="u.echo_pin"></strong>
+                                </div>
                             </div>
-                            <div class="metric">
-                                <span class="metric-value" x-text="panelSpeed"></span>
-                                <span class="metric-unit">cm/s</span>
-                                <span class="metric-label">Velocidad</span>
-                            </div>
-                        </div>
-
-                        <!-- Estado detección -->
-                        <div class="panel-detection-status" :class="{ 'detected': panelDetected }">
-                            <span class="detection-icon" x-text="panelDetected ? animalIcon(panelAnimal) : '😴'"></span>
-                            <span class="detection-text" x-text="panelDetected ? (panelAnimal === 'mouse' ? 'Ratón' : panelAnimal === 'cat' ? 'Gato/Perro' : 'Detectando...') : 'Sin detección'"></span>
-                        </div>
-
-                        <!-- Contadores compactos -->
-                        <div class="panel-counters">
-                            <span class="counter">Total: <strong x-text="panelDetectionStats.total"></strong></span>
-                            <span class="counter">🐭 <strong x-text="panelDetectionStats.mice"></strong></span>
-                            <span class="counter">🐱 <strong x-text="panelDetectionStats.cats"></strong></span>
-                        </div>
+                        </template>
                     </div>
 
                     <!-- DHT Sensors Section -->
@@ -792,6 +698,139 @@
                         Configurar dispositivo
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Modal -->
+    <div class="modal-overlay" x-show="showHistoryModal" @click.self="closeHistoryModal()" style="display: none;">
+        <div class="modal" style="max-width: 820px; width: 95vw; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header">
+                <div>
+                    <h2 style="display: flex; align-items: center; gap: 8px;">
+                        <span class="status-dot" :class="{ online: historyDevice?.is_online }"></span>
+                        <span x-text="historyDevice?.name"></span>
+                    </h2>
+                    <p class="text-gray" style="font-size: 0.82em; margin-top: 4px;">
+                        <span x-text="historyDevice?.mac_address"></span>
+                        &nbsp;·&nbsp;
+                        <span x-text="historyDevice?.board_model || 'ESP32'"></span>
+                        &nbsp;·&nbsp;
+                        Firmware: <span x-text="historyDevice?.firmware_version || 'N/A'"></span>
+                    </p>
+                </div>
+                <button class="modal-close" @click="closeHistoryModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+
+                <!-- Sensor Configuration Summary -->
+                <div style="margin-bottom: 20px;">
+                    <h4 style="margin: 0 0 10px; color: #555; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px;">
+                        📋 Sensores Configurados
+                    </h4>
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                        <template x-for="dht in historyConfig.dht" :key="'dht-'+dht.pin">
+                            <span style="background: #e3f2fd; color: #1565c0; padding: 4px 10px; border-radius: 12px; font-size: 0.82em; font-weight: 500;">
+                                🌡️ <span x-text="dht.name || (dht.sensor_type + ' pin' + dht.pin)"></span>
+                            </span>
+                        </template>
+                        <template x-for="i2c in historyConfig.i2c" :key="'i2c-'+i2c.id">
+                            <span style="background: #f3e5f5; color: #6a1b9a; padding: 4px 10px; border-radius: 12px; font-size: 0.82em; font-weight: 500;">
+                                🔌 <span x-text="i2c.name || (i2c.sensor_type + ' 0x' + i2c.i2c_address.toString(16).toUpperCase())"></span>
+                            </span>
+                        </template>
+                        <template x-for="us in historyConfig.ultrasonic" :key="'us-'+us.id">
+                            <span style="background: #e8f5e9; color: #2e7d32; padding: 4px 10px; border-radius: 12px; font-size: 0.82em; font-weight: 500;">
+                                📡 <span x-text="us.name || ('HC-SR04 T'+us.trig_pin+'/E'+us.echo_pin)"></span>
+                            </span>
+                        </template>
+                        <template x-for="gpio in historyConfig.gpio.filter(g => g.mode.includes('INPUT'))" :key="'gpio-'+gpio.pin">
+                            <span style="background: #fff3e0; color: #e65100; padding: 4px 10px; border-radius: 12px; font-size: 0.82em; font-weight: 500;">
+                                ⚡ <span x-text="gpio.name || ('GPIO ' + gpio.pin + ' (' + gpio.mode + ')')"></span>
+                            </span>
+                        </template>
+                        <span x-show="historyConfig.dht.length === 0 && historyConfig.i2c.length === 0 && historyConfig.ultrasonic.length === 0 && historyConfig.gpio.filter(g => g.mode.includes('INPUT')).length === 0"
+                              style="color: #999; font-size: 0.85em; font-style: italic;">
+                            Sin sensores configurados
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Historical Data Section -->
+                <div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                        <h4 style="margin: 0; color: #555; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px;">
+                            📊 Historial de Capturas
+                        </h4>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <select x-model="historyLimit" @change="reloadHistoryData()" style="font-size: 0.82em; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px;">
+                                <option value="50">50 registros</option>
+                                <option value="100">100 registros</option>
+                                <option value="200">200 registros</option>
+                                <option value="500">500 registros</option>
+                            </select>
+                            <button class="btn btn-secondary btn-sm" @click="reloadHistoryData()" :disabled="historyLoading"
+                                    title="Actualizar" style="padding: 4px 8px; font-size: 13px;">↻</button>
+                        </div>
+                    </div>
+
+                    <!-- Loading -->
+                    <div x-show="historyLoading" style="text-align: center; padding: 40px; color: #999;">
+                        ⏳ Cargando datos...
+                    </div>
+
+                    <!-- No data state -->
+                    <div x-show="!historyLoading && historyRawData.length === 0"
+                         style="text-align: center; padding: 40px; color: #999; background: #fafafa; border-radius: 8px; border: 1px solid #eee;">
+                        Sin registros. Los datos aparecen cuando el dispositivo envía lecturas.
+                    </div>
+
+                    <!-- Tabs + Chart + Table -->
+                    <div x-show="!historyLoading && historyRawData.length > 0">
+                        <!-- Type tabs -->
+                        <div class="tabs" style="margin-bottom: 0; border-bottom: none;">
+                            <template x-for="type in getHistoryTypes()" :key="type">
+                                <div class="tab" :class="{ active: historyTab === type }"
+                                     @click="setHistoryTab(type)"
+                                     x-text="getHistoryTypeName(type)">
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Chart + table container -->
+                        <div style="background: #fafafa; border: 1px solid #e0e0e0; border-radius: 0 0 8px 8px; padding: 16px;">
+                            <!-- Chart -->
+                            <div style="height: 240px; position: relative;">
+                                <canvas id="historyChart"></canvas>
+                            </div>
+
+                            <!-- Records table -->
+                            <div style="margin-top: 16px; max-height: 220px; overflow-y: auto; border-radius: 6px; border: 1px solid #e8e8e8;">
+                                <table style="width: 100%; border-collapse: collapse; font-size: 0.82em;">
+                                    <thead>
+                                        <tr style="background: #f0f0f0; position: sticky; top: 0;">
+                                            <th style="text-align: left; padding: 6px 10px; color: #555; font-weight: 600;">Fecha / Hora</th>
+                                            <th style="text-align: left; padding: 6px 10px; color: #555; font-weight: 600;">Sensor</th>
+                                            <th style="text-align: right; padding: 6px 10px; color: #555; font-weight: 600;">Valor</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="record in historyRawData.filter(r => r.sensor_type === historyTab).slice(0, 100)" :key="record.id">
+                                            <tr style="border-top: 1px solid #f0f0f0;">
+                                                <td style="padding: 5px 10px; color: #666;" x-text="formatDate(record.recorded_at)"></td>
+                                                <td style="padding: 5px 10px; color: #444;" x-text="getSensorPinLabel(record.sensor_pin)"></td>
+                                                <td style="padding: 5px 10px; text-align: right; font-weight: 600; font-family: monospace;"
+                                                    x-text="Number(record.value).toFixed(2) + (getHistoryUnit(historyTab) ? ' ' + getHistoryUnit(historyTab) : '')">
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>

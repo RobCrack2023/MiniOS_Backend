@@ -24,20 +24,6 @@ function app() {
         deviceI2cs: [],
         deviceUltrasonics: [],
 
-        // Ultrasonic Detection Stats
-        currentDistance: null,
-        currentSpeed: 0,
-        isObjectDetected: false,
-        detectedAnimal: null,
-        gpioTriggered: false,
-        detectionStats: {
-            total: 0,
-            mice: 0,
-            cats: 0,
-            lastDetection: null,
-            lastAnimal: null
-        },
-
         // Control Panel
         showControlPanel: false,
         controlPanelDevice: null,
@@ -45,18 +31,6 @@ function app() {
         panelDhts: [],
         panelUltrasonics: [],
         panelSensorData: {},
-        panelDistance: null,
-        panelDetected: false,
-        panelAnimal: null,
-        panelSpeed: 0,
-        panelGpioTriggered: false,
-        panelDetectionStats: {
-            total: 0,
-            mice: 0,
-            cats: 0,
-            lastDetection: null,
-            lastAnimal: null
-        },
 
         // Forms
         newGpio: { pin: '', mode: 'OUTPUT', name: '' },
@@ -69,6 +43,16 @@ function app() {
         isScanning: false,
         scanTimeout: null,
         scanMessage: '',
+
+        // History Modal
+        showHistoryModal: false,
+        historyDevice: null,
+        historyConfig: { gpio: [], dht: [], i2c: [], ultrasonic: [] },
+        historyRawData: [],
+        historyTab: '',
+        historyChartInstance: null,
+        historyLoading: false,
+        historyLimit: 100,
         newFirmware: { version: '', description: '', file: null },
         passwordForm: { current: '', new: '' },
         timezoneForm: { timezone: 'America/Santiago' },
@@ -235,33 +219,6 @@ function app() {
                             deviceSending.last_seen = data.last_seen;
                         }
                     }
-                    // Actualizar datos ultrasónicos si es el dispositivo seleccionado
-                    if (this.selectedDevice && data.mac_address === this.selectedDevice.mac_address) {
-                        if (data.payload.ultrasonic && data.payload.ultrasonic.length > 0) {
-                            const sensor = data.payload.ultrasonic[0];
-                            this.currentDistance = sensor.distance;
-                            this.gpioTriggered = sensor.triggered || false;
-                            if (sensor.analysis) {
-                                const wasDetected = this.isObjectDetected;
-                                this.isObjectDetected = sensor.analysis.detected;
-                                this.currentSpeed = sensor.analysis.speed || 0;
-                                this.detectedAnimal = sensor.analysis.animalType;
-
-                                // Incrementar contador si es nueva detección
-                                if (sensor.analysis.detected && !wasDetected) {
-                                    this.detectionStats.total++;
-                                    this.detectionStats.lastDetection = new Date();
-                                    this.detectionStats.lastAnimal = sensor.analysis.animalType;
-                                    if (sensor.analysis.animalType === 'mouse') {
-                                        this.detectionStats.mice++;
-                                    } else if (sensor.analysis.animalType === 'cat') {
-                                        this.detectionStats.cats++;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     // Actualizar Panel de Control si está abierto
                     if (this.showControlPanel && this.controlPanelDevice && data.mac_address === this.controlPanelDevice.mac_address) {
                         // Actualizar GPIOs
@@ -285,41 +242,6 @@ function app() {
                                 };
                             });
                         }
-
-                        // Actualizar Ultrasonic
-                        if (data.payload.ultrasonic && data.payload.ultrasonic.length > 0) {
-                            const sensor = data.payload.ultrasonic[0];
-                            this.panelDistance = sensor.distance;
-                            this.panelGpioTriggered = sensor.triggered || false;
-                            if (sensor.analysis) {
-                                const wasDetected = this.panelDetected;
-                                this.panelDetected = sensor.analysis.detected;
-                                this.panelSpeed = sensor.analysis.speed || 0;
-                                this.panelAnimal = sensor.analysis.animalType;
-
-                                // Incrementar contador si es nueva detección
-                                if (sensor.analysis.detected && !wasDetected) {
-                                    this.panelDetectionStats.total++;
-                                    this.panelDetectionStats.lastDetection = new Date();
-                                    this.panelDetectionStats.lastAnimal = sensor.analysis.animalType;
-                                    if (sensor.analysis.animalType === 'mouse') {
-                                        this.panelDetectionStats.mice++;
-                                    } else if (sensor.analysis.animalType === 'cat') {
-                                        this.panelDetectionStats.cats++;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    break;
-
-                case 'ultrasonic_detection':
-                    console.log('Detección ultrasónica:', data);
-                    // Actualizar UI si es el dispositivo seleccionado
-                    if (this.selectedDevice && data.device_id === this.selectedDevice.id) {
-                        this.isObjectDetected = data.detection.detected;
-                        this.detectedAnimal = data.detection.animalType;
-                        this.currentSpeed = data.detection.speed;
                     }
                     break;
 
@@ -367,16 +289,7 @@ function app() {
             this.deviceI2cs = data.i2c || [];
             this.deviceUltrasonics = data.ultrasonic || [];
 
-            // Reset ultrasonic state
-            this.currentDistance = null;
-            this.currentSpeed = 0;
-            this.isObjectDetected = false;
-            this.detectedAnimal = null;
-
             this.showDeviceModal = true;
-
-            // Reset estadísticas al abrir modal
-            this.resetDetectionStats();
         },
 
         async saveDevice() {
@@ -404,10 +317,6 @@ function app() {
 
             // Reset sensor data
             this.panelSensorData = {};
-            this.panelDistance = null;
-            this.panelDetected = false;
-            this.panelAnimal = null;
-            this.panelSpeed = 0;
 
             // Inicializar valores de GPIO desde deviceData
             const currentData = this.deviceData[device.mac_address];
@@ -433,9 +342,6 @@ function app() {
             }
 
             this.showControlPanel = true;
-
-            // Reset estadísticas al abrir panel
-            this.resetPanelDetectionStats();
         },
 
         closeControlPanel() {
@@ -677,23 +583,6 @@ function app() {
             return `Hace ${hours}h`;
         },
 
-        // Helper: icono de animal
-        animalIcon(type) {
-            if (type === 'mouse') return '🐭';
-            if (type === 'cat') return '🐱';
-            if (type === 'detecting') return '⏳';
-            return '❓';
-        },
-
-        // Reset stats
-        resetDetectionStats() {
-            this.detectionStats = { total: 0, mice: 0, cats: 0, lastDetection: null, lastAnimal: null };
-        },
-
-        resetPanelDetectionStats() {
-            this.panelDetectionStats = { total: 0, mice: 0, cats: 0, lastDetection: null, lastAnimal: null };
-        },
-
         // Firmware
         async loadFirmware() {
             const data = await this.api('/api/ota/firmware');
@@ -802,6 +691,216 @@ function app() {
             } catch (error) {
                 console.error('Error cargando timezone:', error);
             }
+        },
+
+        // Cargar configuración completa de un dispositivo
+        async loadDeviceConfig(deviceId) {
+            const data = await this.api(`/api/devices/${deviceId}`);
+            this.deviceGpios = data.gpio || [];
+            this.deviceDhts = data.dht || [];
+            this.deviceI2cs = data.i2c || [];
+            this.deviceUltrasonics = data.ultrasonic || [];
+        },
+
+        // ============================================
+        // HISTORIAL
+        // ============================================
+
+        async openHistoryModal(device) {
+            this.historyDevice = { ...device };
+            this.historyRawData = [];
+            this.historyTab = '';
+            this.historyLoading = true;
+            this.showHistoryModal = true;
+
+            if (this.historyChartInstance) {
+                this.historyChartInstance.destroy();
+                this.historyChartInstance = null;
+            }
+
+            const [configData, historyData] = await Promise.all([
+                this.api(`/api/devices/${device.id}`),
+                this.api(`/api/devices/${device.id}/data?limit=${this.historyLimit}`)
+            ]);
+
+            this.historyConfig = {
+                gpio: configData.gpio || [],
+                dht: configData.dht || [],
+                i2c: configData.i2c || [],
+                ultrasonic: configData.ultrasonic || []
+            };
+            this.historyRawData = historyData.data || [];
+            this.historyLoading = false;
+
+            const types = this.getHistoryTypes();
+            if (types.length > 0) {
+                this.setHistoryTab(types[0]);
+            }
+        },
+
+        closeHistoryModal() {
+            if (this.historyChartInstance) {
+                this.historyChartInstance.destroy();
+                this.historyChartInstance = null;
+            }
+            this.showHistoryModal = false;
+            this.historyDevice = null;
+            this.historyRawData = [];
+        },
+
+        async reloadHistoryData() {
+            if (!this.historyDevice) return;
+            this.historyLoading = true;
+            const data = await this.api(`/api/devices/${this.historyDevice.id}/data?limit=${this.historyLimit}`);
+            this.historyRawData = data.data || [];
+            this.historyLoading = false;
+
+            const types = this.getHistoryTypes();
+            if (this.historyTab && !types.includes(this.historyTab) && types.length > 0) {
+                this.historyTab = types[0];
+            }
+            if (this.historyChartInstance) {
+                this.historyChartInstance.destroy();
+                this.historyChartInstance = null;
+            }
+            if (this.historyTab) {
+                setTimeout(() => this.renderHistoryChart(), 50);
+            }
+        },
+
+        getHistoryTypes() {
+            const types = [...new Set(this.historyRawData.map(r => r.sensor_type))];
+            const order = ['temperature', 'humidity', 'pressure', 'altitude', 'distance', 'gpio', 'analog'];
+            return types.sort((a, b) => {
+                const ia = order.indexOf(a);
+                const ib = order.indexOf(b);
+                if (ia === -1 && ib === -1) return 0;
+                if (ia === -1) return 1;
+                if (ib === -1) return -1;
+                return ia - ib;
+            });
+        },
+
+        setHistoryTab(type) {
+            this.historyTab = type;
+            if (this.historyChartInstance) {
+                this.historyChartInstance.destroy();
+                this.historyChartInstance = null;
+            }
+            setTimeout(() => this.renderHistoryChart(), 50);
+        },
+
+        getHistoryTypeName(type) {
+            const names = {
+                temperature: 'Temperatura',
+                humidity: 'Humedad',
+                pressure: 'Presión',
+                altitude: 'Altitud',
+                distance: 'Distancia',
+                gpio: 'GPIO',
+                analog: 'Analógico'
+            };
+            return names[type] || type;
+        },
+
+        getHistoryUnit(type) {
+            const units = {
+                temperature: '°C',
+                humidity: '%',
+                pressure: 'hPa',
+                altitude: 'm',
+                distance: 'cm'
+            };
+            return units[type] || '';
+        },
+
+        getSensorPinLabel(pin) {
+            if (pin == null) return 'Sensor';
+            if (this.historyTab === 'temperature' || this.historyTab === 'humidity') {
+                const dht = this.historyConfig.dht?.find(d => d.pin == pin);
+                if (dht) return dht.name || `DHT pin${pin}`;
+                const i2c = this.historyConfig.i2c?.find(i => i.id == pin);
+                if (i2c) return i2c.name || `${i2c.sensor_type} [0x${i2c.i2c_address.toString(16).toUpperCase()}]`;
+            }
+            if (this.historyTab === 'pressure' || this.historyTab === 'altitude') {
+                const i2c = this.historyConfig.i2c?.find(i => i.id == pin);
+                if (i2c) return i2c.name || i2c.sensor_type;
+            }
+            if (this.historyTab === 'distance') {
+                const us = this.historyConfig.ultrasonic?.find(u => u.trig_pin == pin);
+                if (us) return us.name || `HC-SR04 TRIG${pin}`;
+            }
+            if (this.historyTab === 'gpio' || this.historyTab === 'analog') {
+                const gpio = this.historyConfig.gpio?.find(g => g.pin == pin);
+                if (gpio) return gpio.name || `GPIO ${pin}`;
+                return `GPIO ${pin}`;
+            }
+            return `Pin ${pin}`;
+        },
+
+        renderHistoryChart() {
+            const canvas = document.getElementById('historyChart');
+            if (!canvas || !this.historyTab) return;
+
+            if (this.historyChartInstance) {
+                this.historyChartInstance.destroy();
+                this.historyChartInstance = null;
+            }
+
+            // Filtrar y ordenar de más antiguo a más reciente
+            const typeData = [...this.historyRawData]
+                .filter(r => r.sensor_type === this.historyTab)
+                .reverse();
+
+            if (typeData.length === 0) return;
+
+            // Agrupar por sensor_pin
+            const byPin = {};
+            typeData.forEach(r => {
+                const key = r.sensor_pin != null ? r.sensor_pin : 'default';
+                if (!byPin[key]) byPin[key] = [];
+                byPin[key].push(r);
+            });
+
+            const colors = ['#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0', '#00BCD4'];
+            const datasets = Object.entries(byPin).map(([pin, records], i) => ({
+                label: this.getSensorPinLabel(pin),
+                data: records.map(r => r.value),
+                borderColor: colors[i % colors.length],
+                backgroundColor: colors[i % colors.length] + '22',
+                borderWidth: 2,
+                pointRadius: records.length > 50 ? 0 : 3,
+                tension: 0.3,
+                fill: false
+            }));
+
+            // Etiquetas del eje X desde el pin con más datos
+            const mainPin = Object.keys(byPin).sort((a, b) => byPin[b].length - byPin[a].length)[0];
+            const labels = byPin[mainPin].map(r => this.formatDate(r.recorded_at));
+            const unit = this.getHistoryUnit(this.historyTab);
+
+            this.historyChartInstance = new Chart(canvas, {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: Object.keys(byPin).length > 1 },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.parsed.y).toFixed(2)}${unit ? ' ' + unit : ''}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { maxTicksLimit: 8, maxRotation: 30 } },
+                        y: {
+                            title: { display: !!unit, text: unit }
+                        }
+                    }
+                }
+            });
         },
 
         // Guardar timezone

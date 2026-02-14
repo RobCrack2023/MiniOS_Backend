@@ -5,6 +5,15 @@ const path = require('path');
 
 let db = null;
 
+// Normaliza timestamps de SQLite (sin timezone) a ISO 8601 UTC con 'Z'
+// 'YYYY-MM-DD HH:MM:SS' → 'YYYY-MM-DDTHH:MM:SSZ'
+// Ya correctos ('...Z' o '...+HH:MM') se devuelven sin cambios
+function toUtcIso(ts) {
+  if (!ts) return ts;
+  if (ts.includes('Z') || ts.includes('+')) return ts;
+  return ts.replace(' ', 'T') + 'Z';
+}
+
 function initDatabase() {
   const dbPath = path.join(__dirname, '..', '..', 'minios.db');
   db = new Database(dbPath);
@@ -41,33 +50,38 @@ function getDatabase() {
 // DISPOSITIVOS
 // ============================================
 
+function normalizeDevice(device) {
+  return {
+    ...device,
+    is_online: Boolean(device.is_online),
+    last_seen: toUtcIso(device.last_seen),
+    created_at: toUtcIso(device.created_at)
+  };
+}
+
 function getDevices() {
   const devices = db.prepare('SELECT * FROM devices ORDER BY name').all();
-  // Convertir 0/1 de SQLite a booleanos para el frontend
-  return devices.map(device => ({
-    ...device,
-    is_online: Boolean(device.is_online)
-  }));
+  return devices.map(normalizeDevice);
 }
 
 function getDeviceByMac(macAddress) {
   const device = db.prepare('SELECT * FROM devices WHERE mac_address = ?').get(macAddress);
   if (!device) return null;
-  return { ...device, is_online: Boolean(device.is_online) };
+  return normalizeDevice(device);
 }
 
 function getDeviceById(id) {
   const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(id);
   if (!device) return null;
-  return { ...device, is_online: Boolean(device.is_online) };
+  return normalizeDevice(device);
 }
 
 function createDevice(macAddress, name = 'Nuevo Dispositivo') {
   const stmt = db.prepare(`
     INSERT INTO devices (mac_address, name, created_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP)
+    VALUES (?, ?, ?)
   `);
-  const result = stmt.run(macAddress, name);
+  const result = stmt.run(macAddress, name, new Date().toISOString());
   return getDeviceById(result.lastInsertRowid);
 }
 
@@ -123,10 +137,10 @@ function updateDeviceStatus(macAddress, isOnline, ipAddress = null) {
 
   const stmt = db.prepare(`
     UPDATE devices
-    SET is_online = ?, ip_address = ?, last_seen = CURRENT_TIMESTAMP
+    SET is_online = ?, ip_address = ?, last_seen = ?
     WHERE mac_address = ?
   `);
-  stmt.run(isOnline ? 1 : 0, ipAddress, macAddress);
+  stmt.run(isOnline ? 1 : 0, ipAddress, new Date().toISOString(), macAddress);
 
   return getDeviceByMac(macAddress);
 }
@@ -273,25 +287,26 @@ function deleteI2cConfig(deviceId, i2cAddress) {
 
 function saveSensorData(deviceId, sensorType, value, pin = null) {
   const stmt = db.prepare(`
-    INSERT INTO sensor_data (device_id, sensor_type, sensor_pin, value)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO sensor_data (device_id, sensor_type, sensor_pin, value, recorded_at)
+    VALUES (?, ?, ?, ?, ?)
   `);
-  return stmt.run(deviceId, sensorType, pin, value);
+  return stmt.run(deviceId, sensorType, pin, value, new Date().toISOString());
 }
 
 function getSensorData(deviceId, sensorType = null, limit = 100) {
-  if (sensorType) {
-    return db.prepare(`
-      SELECT * FROM sensor_data
-      WHERE device_id = ? AND sensor_type = ?
-      ORDER BY recorded_at DESC LIMIT ?
-    `).all(deviceId, sensorType, limit);
-  }
-  return db.prepare(`
-    SELECT * FROM sensor_data
-    WHERE device_id = ?
-    ORDER BY recorded_at DESC LIMIT ?
-  `).all(deviceId, limit);
+  const rows = sensorType
+    ? db.prepare(`
+        SELECT * FROM sensor_data
+        WHERE device_id = ? AND sensor_type = ?
+        ORDER BY recorded_at DESC LIMIT ?
+      `).all(deviceId, sensorType, limit)
+    : db.prepare(`
+        SELECT * FROM sensor_data
+        WHERE device_id = ?
+        ORDER BY recorded_at DESC LIMIT ?
+      `).all(deviceId, limit);
+
+  return rows.map(r => ({ ...r, recorded_at: toUtcIso(r.recorded_at) }));
 }
 
 // Limpiar datos antiguos (más de 7 días)
@@ -393,11 +408,9 @@ function createUser(username, hashedPassword) {
 
 function getUltrasonicConfigs(deviceId) {
   const configs = db.prepare('SELECT * FROM ultrasonic_configs WHERE device_id = ? ORDER BY id').all(deviceId);
-  // Convertir 0/1 de SQLite a booleanos para el frontend
   return configs.map(config => ({
     ...config,
     detection_enabled: Boolean(config.detection_enabled),
-    smart_detection_enabled: Boolean(config.smart_detection_enabled),
     active: Boolean(config.active)
   }));
 }
@@ -411,9 +424,9 @@ function setUltrasonicConfig(deviceId, config) {
     INSERT INTO ultrasonic_configs (
       device_id, name, trig_pin, echo_pin, max_distance, read_interval,
       detection_enabled, trigger_distance, trigger_gpio_pin, trigger_gpio_value, trigger_duration,
-      smart_detection_enabled, animal_type, mouse_max_speed, mouse_max_duration, cat_min_duration, active
+      active
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(device_id, trig_pin, echo_pin) DO UPDATE SET
       name = excluded.name,
       max_distance = excluded.max_distance,
@@ -423,11 +436,6 @@ function setUltrasonicConfig(deviceId, config) {
       trigger_gpio_pin = excluded.trigger_gpio_pin,
       trigger_gpio_value = excluded.trigger_gpio_value,
       trigger_duration = excluded.trigger_duration,
-      smart_detection_enabled = excluded.smart_detection_enabled,
-      animal_type = excluded.animal_type,
-      mouse_max_speed = excluded.mouse_max_speed,
-      mouse_max_duration = excluded.mouse_max_duration,
-      cat_min_duration = excluded.cat_min_duration,
       active = excluded.active
   `);
 
@@ -443,11 +451,6 @@ function setUltrasonicConfig(deviceId, config) {
     config.trigger_gpio_pin || null,
     config.trigger_gpio_value !== undefined ? config.trigger_gpio_value : 1,
     config.trigger_duration || 1000,
-    config.smart_detection_enabled ? 1 : 0,
-    config.animal_type || 'any',
-    config.mouse_max_speed || 100,
-    config.mouse_max_duration || 2000,
-    config.cat_min_duration || 2000,
     config.active === false ? 0 : 1
   );
 }
@@ -456,142 +459,24 @@ function deleteUltrasonicConfig(deviceId, id) {
   return db.prepare('DELETE FROM ultrasonic_configs WHERE device_id = ? AND id = ?').run(deviceId, id);
 }
 
+
 // ============================================
-// DETECCIÓN DE ANIMALES (análisis de patrones)
+// COMANDOS PENDIENTES
 // ============================================
 
-// Buffer temporal para análisis de patrones (en memoria)
-const detectionBuffers = new Map();
-
-function addDistanceReading(deviceId, sensorId, distance) {
-  const key = `${deviceId}_${sensorId}`;
-  if (!detectionBuffers.has(key)) {
-    detectionBuffers.set(key, {
-      readings: [],
-      lastDetection: null,
-      detectionStart: null
-    });
-  }
-
-  const buffer = detectionBuffers.get(key);
-  const now = Date.now();
-
-  // Mantener solo últimos 5 segundos de lecturas
-  buffer.readings = buffer.readings.filter(r => now - r.time < 5000);
-  buffer.readings.push({ distance, time: now });
-
-  return buffer;
+function savePendingCommand(deviceId, command) {
+  return db.prepare('INSERT INTO pending_commands (device_id, command) VALUES (?, ?)')
+    .run(deviceId, JSON.stringify(command));
 }
 
-function analyzeDetection(deviceId, sensorId, config) {
-  const key = `${deviceId}_${sensorId}`;
-  const buffer = detectionBuffers.get(key);
-
-  if (!buffer || buffer.readings.length < 3) {
-    return { detected: false };
-  }
-
-  const readings = buffer.readings;
-  const triggerDistance = config.trigger_distance;
-  const now = Date.now();
-
-  // Calcular velocidad primero (cambio de distancia por tiempo)
-  let speed = 0;
-  if (readings.length >= 2) {
-    const recent = readings.slice(-5);
-    let totalChange = 0;
-    for (let i = 1; i < recent.length; i++) {
-      totalChange += Math.abs(recent[i].distance - recent[i-1].distance);
-    }
-    const timeSpan = (recent[recent.length-1].time - recent[0].time) / 1000; // segundos
-    speed = timeSpan > 0 ? totalChange / timeSpan : 0; // cm/s
-  }
-
-  // Umbral mínimo de movimiento (5 cm/s) para descartar objetos estáticos
-  const MIN_MOVEMENT_SPEED = 5;
-  const isMoving = speed >= MIN_MOVEMENT_SPEED;
-
-  // Verificar si hay objeto dentro del rango
-  const inRange = readings.filter(r => r.distance <= triggerDistance);
-  if (inRange.length === 0) {
-    // Objeto salió del rango
-    if (buffer.detectionStart) {
-      const duration = now - buffer.detectionStart;
-      buffer.detectionStart = null;
-      buffer.lastDetection = { endTime: now, duration };
-    }
-    return { detected: false, speed: Math.round(speed), isMoving };
-  }
-
-  // Solo detectar si hay movimiento real (no objetos estáticos)
-  if (!isMoving) {
-    // Hay algo en rango pero no se mueve - resetear detección
-    buffer.detectionStart = null;
-    return {
-      detected: false,
-      distance: readings[readings.length - 1].distance,
-      speed: Math.round(speed),
-      isMoving: false,
-      reason: 'static_object'
-    };
-  }
-
-  // Objeto en movimiento detectado
-  if (!buffer.detectionStart) {
-    buffer.detectionStart = inRange[0].time;
-  }
-
-  const duration = now - buffer.detectionStart;
-
-  // Clasificar animal si smart_detection está habilitado
-  // Ratón: movimiento rápido y corta duración
-  // Gato/Perro: movimiento más lento y mayor duración
-  let animalType = 'unknown';
-  if (config.smart_detection_enabled) {
-    // Ratón: velocidad alta (> 50 cm/s típico) o duración corta (pasa rápido)
-    if (speed <= config.mouse_max_speed && duration <= config.mouse_max_duration) {
-      animalType = 'mouse';
-    }
-    // Gato/Perro: permanece más tiempo en el área
-    else if (duration >= config.cat_min_duration) {
-      animalType = 'cat'; // cat incluye perros (animales grandes)
-    }
-    // Intermedio: aún no se puede clasificar, esperar más datos
-    else {
-      animalType = 'detecting';
-    }
-  }
-
-  return {
-    detected: true,
-    distance: readings[readings.length - 1].distance,
-    duration,
-    speed: Math.round(speed),
-    isMoving: true,
-    animalType,
-    shouldTrigger: shouldTriggerGpio(config, animalType)
-  };
+function getPendingCommands(deviceId) {
+  return db.prepare('SELECT id, command FROM pending_commands WHERE device_id = ? ORDER BY created_at ASC')
+    .all(deviceId)
+    .map(r => ({ id: r.id, command: JSON.parse(r.command) }));
 }
 
-function shouldTriggerGpio(config, detectedAnimal) {
-  if (!config.detection_enabled) return false;
-  if (!config.trigger_gpio_pin) return false;
-
-  // Si smart_detection está deshabilitado, disparar con cualquier movimiento
-  if (!config.smart_detection_enabled) return true;
-
-  // No disparar si aún está clasificando
-  if (detectedAnimal === 'detecting' || detectedAnimal === 'unknown') return false;
-
-  const targetAnimal = config.animal_type;
-  if (targetAnimal === 'any') return detectedAnimal === 'cat' || detectedAnimal === 'mouse';
-  if (targetAnimal === 'both') return detectedAnimal === 'cat' || detectedAnimal === 'mouse';
-  return targetAnimal === detectedAnimal;
-}
-
-function clearDetectionBuffer(deviceId, sensorId) {
-  const key = `${deviceId}_${sensorId}`;
-  detectionBuffers.delete(key);
+function clearPendingCommands(deviceId) {
+  return db.prepare('DELETE FROM pending_commands WHERE device_id = ?').run(deviceId);
 }
 
 // ============================================
@@ -663,10 +548,10 @@ module.exports = {
   getUltrasonicConfigById,
   setUltrasonicConfig,
   deleteUltrasonicConfig,
-  // Detection Analysis
-  addDistanceReading,
-  analyzeDetection,
-  clearDetectionBuffer,
+  // Pending Commands
+  savePendingCommand,
+  getPendingCommands,
+  clearPendingCommands,
   // System Settings
   getSetting,
   setSetting,

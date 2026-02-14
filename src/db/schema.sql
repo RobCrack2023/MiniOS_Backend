@@ -96,13 +96,6 @@ CREATE TABLE IF NOT EXISTS ultrasonic_configs (
     trigger_gpio_pin INTEGER,                   -- GPIO a accionar
     trigger_gpio_value INTEGER DEFAULT 1,       -- Valor al detectar (0 o 1)
     trigger_duration INTEGER DEFAULT 1000,      -- Duración del trigger en ms (0 = mantener)
-    -- Detección inteligente de animales
-    smart_detection_enabled INTEGER DEFAULT 0,
-    animal_type TEXT DEFAULT 'any',             -- 'any', 'cat', 'mouse', 'both'
-    -- Umbrales para clasificación
-    mouse_max_speed INTEGER DEFAULT 100,        -- Velocidad máxima ratón cm/s
-    mouse_max_duration INTEGER DEFAULT 2000,    -- Duración máxima detección ratón ms
-    cat_min_duration INTEGER DEFAULT 2000,      -- Duración mínima detección gato ms
     -- Estado
     active INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -145,6 +138,17 @@ CREATE TABLE IF NOT EXISTS ota_history (
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
     FOREIGN KEY (firmware_id) REFERENCES firmware(id) ON DELETE CASCADE
 );
+
+-- Comandos pendientes para dispositivos offline (deep sleep)
+CREATE TABLE IF NOT EXISTS pending_commands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id INTEGER NOT NULL,
+    command TEXT NOT NULL,              -- JSON string del comando
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_commands_device ON pending_commands(device_id);
 
 -- Configuración del sistema
 CREATE TABLE IF NOT EXISTS system_settings (

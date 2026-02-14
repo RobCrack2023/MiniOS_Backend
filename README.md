@@ -1,272 +1,255 @@
 # MiniOS Backend
 
-Backend centralizado para gestionar dispositivos ESP32 con MiniOS WiFi.
+Backend centralizado para gestionar dispositivos ESP32 con MiniOS WiFi Client.
 
-## Requisitos
+## Stack
 
-- Node.js 18+
-- npm
+- **Runtime**: Node.js 18+
+- **Framework**: Fastify
+- **Base de datos**: SQLite (better-sqlite3, WAL mode)
+- **Autenticación**: JWT
+- **Tiempo real**: WebSocket (ws)
+- **Frontend**: AlpineJS + Chart.js (dashboard embebido)
 
-## Instalación
+## Sensores Soportados
+
+| Sensor | Protocolo | Datos |
+|--------|-----------|-------|
+| DHT11 / DHT22 | Digital 1-wire | Temperatura, Humedad |
+| AHT20 | I2C (0x38) | Temperatura, Humedad |
+| BMP280 | I2C (0x76 / 0x77) | Temperatura, Presión, Altitud |
+| HC-SR04 | Digital TRIG/ECHO | Distancia (cm) |
+| GPIO OUTPUT | Digital | Control (ON/OFF) |
+| GPIO PWM | Digital | Control (0–255) |
+| GPIO INPUT | Digital / Analógico | Lectura |
+
+---
+
+## Instalación Local
 
 ```bash
-# Instalar dependencias
 npm install
-
-# Iniciar en desarrollo
-npm run dev
-
-# Iniciar en producción
-npm start
+npm run dev   # desarrollo (nodemon)
+npm start     # producción
 ```
 
-## Configuración
+Abrir en navegador: `http://localhost:3001`
+Usuario por defecto: **admin / admin123** — cambiar inmediatamente en Configuración.
 
-Variables de entorno (opcional):
+## Variables de Entorno
+
+Crear un archivo `.env` en la raíz del proyecto (opcional, hay valores por defecto):
 
 ```bash
 PORT=3001
-JWT_SECRET=tu-clave-secreta-aqui
-TZ=America/Argentina/Buenos_Aires  # Zona horaria del servidor (UTC-3)
+JWT_SECRET=cambia-esto-por-una-clave-segura
 ```
 
-### Zona Horaria
+> **Nota sobre Timezone**: Los timestamps se almacenan siempre en **UTC** en la base de datos.
+> La conversión a zona horaria local ocurre **en el frontend**, usando la zona configurada en
+> el dashboard (Configuración → Zona Horaria). No es necesario configurar `TZ` en el servidor.
 
-El sistema está configurado por defecto para **UTC-3** (Argentina/Brasil). Los timestamps se muestran en esta zona horaria tanto en el dashboard como en los logs.
+---
 
-Para cambiar la zona horaria:
+## Despliegue por Primera Vez en VPS Ubuntu
 
-1. **En el servidor**: Establecer la variable de entorno `TZ` antes de iniciar:
-   ```bash
-   export TZ=America/Sao_Paulo  # Brasil (UTC-3)
-   # o
-   export TZ=America/Mexico_City  # México (UTC-6)
-   # o
-   export TZ=Europe/Madrid  # España (UTC+1/+2)
-
-   npm start
-   ```
-
-2. **En el frontend**: Editar `public/js/app.js` línea 709, cambiar la zona horaria:
-   ```javascript
-   timeZone: 'America/Argentina/Buenos_Aires'  // Cambiar aquí
-   ```
-
-**Nota**: Los timestamps se almacenan en UTC en la base de datos (buena práctica) y se convierten al mostrarlos.
-
-## Primer Uso
-
-1. Iniciar el servidor: `npm start`
-2. Abrir en navegador: `http://localhost:3001`
-3. Usuario por defecto: `admin` / `admin123`
-4. **Cambiar la contraseña inmediatamente**
-
-## API Endpoints
-
-### Autenticación
-- `POST /api/auth/login` - Iniciar sesión
-- `GET /api/auth/verify` - Verificar token
-- `POST /api/auth/change-password` - Cambiar contraseña
-
-### Dispositivos
-- `GET /api/devices` - Listar dispositivos
-- `GET /api/devices/:id` - Obtener dispositivo
-- `PUT /api/devices/:id` - Actualizar dispositivo
-- `DELETE /api/devices/:id` - Eliminar dispositivo
-
-### GPIO
-- `GET /api/devices/:id/gpio` - Obtener configuración GPIO
-- `POST /api/devices/:id/gpio` - Configurar GPIO
-- `POST /api/devices/:id/gpio/:pin/set` - Establecer valor GPIO
-
-### DHT
-- `GET /api/devices/:id/dht` - Obtener configuración DHT
-- `POST /api/devices/:id/dht` - Configurar DHT
-
-### Firmware / OTA
-- `GET /api/ota/firmware` - Listar firmware
-- `POST /api/ota/firmware/upload` - Subir firmware
-- `POST /api/ota/firmware/:id/activate` - Activar firmware
-- `POST /api/ota/update/:deviceId` - Actualizar dispositivo
-- `POST /api/ota/update-all` - Actualizar todos
-
-## WebSocket
-
-### Endpoints
-- `/ws/device` - Conexión para dispositivos ESP32
-- `/ws/dashboard` - Conexión para dashboard web
-
-### Mensajes del Dispositivo al Backend
-
-```json
-{
-  "type": "register",
-  "mac_address": "AA:BB:CC:DD:EE:FF",
-  "firmware_version": "1.0.0",
-  "ip_address": "192.168.1.100"
-}
-
-{
-  "type": "data",
-  "mac_address": "AA:BB:CC:DD:EE:FF",
-  "payload": {
-    "temperature": 25.5,
-    "humidity": 60,
-    "gpio": [{"pin": 2, "value": 1}]
-  }
-}
-```
-
-### Mensajes del Backend al Dispositivo
-
-```json
-{
-  "type": "config",
-  "device_id": 1,
-  "gpio": [...],
-  "dht": [...],
-  "ota": null
-}
-
-{
-  "type": "command",
-  "action": "set_gpio",
-  "pin": 2,
-  "value": 1
-}
-
-{
-  "type": "command",
-  "action": "ota_update",
-  "ota_id": 1,
-  "version": "1.0.1",
-  "filename": "firmware.bin",
-  "checksum": "abc123",
-  "filesize": 512000
-}
-```
-
-## Estructura del Proyecto
-
-```
-MiniOS_Backend/
-├── src/
-│   ├── index.js           # Entry point
-│   ├── websocket.js       # WebSocket server
-│   ├── db/
-│   │   ├── database.js    # SQLite wrapper
-│   │   └── schema.sql     # Database schema
-│   └── routes/
-│       ├── api.js         # REST API
-│       ├── auth.js        # Authentication
-│       └── ota.js         # OTA management
-├── public/                # Dashboard web
-├── firmware/              # Uploaded .bin files
-├── minios.db              # SQLite database
-└── package.json
-```
-
-## Despliegue en VPS
-
-### Con PM2
+### 1. Preparar el servidor
 
 ```bash
-# Instalar PM2
-npm install -g pm2
+# Conectarse al VPS
+ssh root@tu-servidor.com
 
-# Iniciar aplicación
-pm2 start src/index.js --name minios
+# Actualizar sistema
+apt update && apt upgrade -y
 
-# Auto-inicio en reboot
-pm2 startup
-pm2 save
+# Instalar herramientas básicas
+apt install -y git curl ufw nginx certbot python3-certbot-nginx
 ```
 
-### Con Nginx (proxy inverso)
+### 2. Instalar Node.js 20 LTS
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt install -y nodejs
+node --version   # debe mostrar v20.x.x
+```
+
+### 3. Instalar PM2
+
+```bash
+npm install -g pm2
+```
+
+### 4. Configurar el firewall
+
+```bash
+ufw allow OpenSSH
+ufw allow 'Nginx Full'   # abre puertos 80 y 443
+ufw enable
+ufw status
+```
+
+### 5. Clonar y configurar el proyecto
+
+```bash
+# Crear usuario no-root para la aplicación (recomendado)
+adduser minios
+usermod -aG sudo minios
+su - minios
+
+# Clonar el repositorio
+git clone https://github.com/tu-usuario/MiniOS_Backend.git
+cd MiniOS_Backend
+
+# Instalar dependencias
+npm install --production
+
+# Crear archivo de variables de entorno
+cat > .env << 'EOF'
+PORT=3001
+JWT_SECRET=genera-una-clave-larga-y-aleatoria-aqui
+EOF
+
+chmod 600 .env
+```
+
+### 6. Iniciar con PM2
+
+```bash
+# Iniciar la aplicación
+pm2 start src/index.js --name minios
+
+# Configurar auto-inicio al reiniciar el servidor
+pm2 startup systemd
+# Ejecutar el comando que PM2 muestra (empieza con "sudo env PATH=...")
+
+pm2 save
+
+# Verificar que funciona
+pm2 status
+pm2 logs minios --lines 30
+```
+
+### 7. Configurar Nginx como proxy inverso
+
+```bash
+# Crear configuración de Nginx
+sudo nano /etc/nginx/sites-available/minios
+```
+
+Pegar la siguiente configuración (reemplazar `tu-dominio.com`):
 
 ```nginx
 server {
     listen 80;
     server_name tu-dominio.com;
 
+    # Aumentar límite para subida de firmware .bin
+    client_max_body_size 10M;
+
     location / {
         proxy_pass http://localhost:3001;
         proxy_http_version 1.1;
+
+        # Headers para WebSocket
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
+        proxy_set_header Connection "upgrade";
+
         proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Timeouts para conexiones WebSocket de larga duración
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
     }
 }
 ```
 
-## Actualizar Servidor de Producción
+```bash
+# Activar el sitio
+sudo ln -s /etc/nginx/sites-available/minios /etc/nginx/sites-enabled/
+sudo nginx -t   # verificar configuración
+sudo systemctl reload nginx
+```
 
-Para actualizar el servidor con los últimos cambios del repositorio:
-
-### Método 1: Con PM2 (Recomendado)
+### 8. Configurar SSL con Let's Encrypt
 
 ```bash
-# Conectar al servidor VPS
-ssh usuario@tu-servidor.com
+sudo certbot --nginx -d tu-dominio.com
+# Certbot modifica el nginx.conf automáticamente para HTTPS
 
-# Ir al directorio del proyecto
-cd /ruta/a/MiniOS_Backend
+# Verificar renovación automática
+sudo certbot renew --dry-run
+```
 
-# Obtener los últimos cambios
-git pull origin main
+### 9. Verificación final
 
-# Instalar nuevas dependencias (si las hay)
-npm install
+```bash
+# Verificar PM2
+pm2 status
 
-# Reiniciar la aplicación con PM2
-pm2 restart minios
+# Verificar Nginx
+sudo systemctl status nginx
 
-# Ver logs para verificar que funciona
+# Probar HTTP (debe redirigir a HTTPS)
+curl -I http://tu-dominio.com
+
+# Probar HTTPS
+curl -I https://tu-dominio.com
+
+# Ver logs en tiempo real
 pm2 logs minios
 ```
 
-### Método 2: Sin PM2
+El dashboard estará disponible en `https://tu-dominio.com`.
+El ESP32 debe apuntar a `tu-dominio.com` en puerto **443** (SSL).
+
+---
+
+## Actualizar el Servidor de Producción
+
+### Proceso estándar
 
 ```bash
-# Conectar al servidor VPS
-ssh usuario@tu-servidor.com
+# 1. Conectarse al servidor
+ssh minios@tu-servidor.com
+cd ~/MiniOS_Backend
 
-# Ir al directorio del proyecto
-cd /ruta/a/MiniOS_Backend
+# 2. Backup de la base de datos (SIEMPRE antes de actualizar)
+cp minios.db minios.db.backup.$(date +%Y%m%d_%H%M%S)
 
-# Obtener los últimos cambios
+# 3. Obtener los últimos cambios
 git pull origin main
 
-# Instalar nuevas dependencias (si las hay)
-npm install
+# 4. Instalar nuevas dependencias (si las hay)
+npm install --production
 
-# Detener el proceso actual (Ctrl+C si está corriendo en terminal)
-# O encontrar y matar el proceso:
-pkill -f "node src/index.js"
+# 5. Reiniciar con PM2 (zero-downtime reload cuando sea posible)
+pm2 reload minios
 
-# Iniciar de nuevo
-npm start
+# 6. Verificar que todo funciona
+pm2 logs minios --lines 50
 ```
 
-### Verificación Post-Actualización
+### Si hubo cambios en el schema de la DB
+
+El backend aplica el schema automáticamente al iniciar usando `IF NOT EXISTS`.
+Para **nuevas columnas** en tablas existentes, ejecutar manualmente:
 
 ```bash
-# Verificar que el servidor está corriendo
-pm2 status  # Si usas PM2
+# Conectarse a la base de datos SQLite
+sqlite3 minios.db
 
-# Probar el endpoint de salud (opcional, si lo tienes configurado)
-curl http://localhost:3001
+# Ejemplo: agregar una columna nueva
+ALTER TABLE devices ADD COLUMN nueva_columna TEXT;
 
-# Ver logs en tiempo real
-pm2 logs minios --lines 50  # Con PM2
-# o
-tail -f logs/app.log  # Si tienes logs configurados
+# Salir
+.quit
 ```
 
-### Rollback en Caso de Problemas
-
-Si algo sale mal después de actualizar:
+### Rollback en caso de problemas
 
 ```bash
 # Ver commits recientes
@@ -275,25 +258,265 @@ git log --oneline -5
 # Volver al commit anterior
 git reset --hard HEAD~1
 
-# Reiniciar aplicación
+# Restaurar backup de la DB si es necesario
+cp minios.db.backup.YYYYMMDD_HHMMSS minios.db
+
+# Reiniciar
 pm2 restart minios
+pm2 logs minios --lines 30
 ```
 
-### Notas Importantes
+### Comandos PM2 útiles
 
-- **Backup**: Siempre haz backup de la base de datos antes de actualizar:
-  ```bash
-  cp minios.db minios.db.backup.$(date +%Y%m%d_%H%M%S)
-  ```
+```bash
+pm2 status              # estado de todos los procesos
+pm2 logs minios         # logs en tiempo real
+pm2 logs minios --lines 100   # últimas 100 líneas
+pm2 restart minios      # reinicio completo
+pm2 reload minios       # reinicio sin downtime
+pm2 stop minios         # detener
+pm2 monit               # monitor interactivo (CPU, RAM)
+```
 
-- **Permisos**: Asegúrate de tener permisos de escritura en el directorio
-  ```bash
-  ls -la
-  ```
+---
 
-- **Variables de Entorno**: Verifica que las variables de entorno sigan configuradas correctamente después de actualizar
+## API Reference
 
-- **WebSocket**: Los cambios en WebSocket requieren que los dispositivos ESP32 se reconecten automáticamente
+Todos los endpoints (excepto auth y `/api/time`) requieren header:
+```
+Authorization: Bearer <token>
+```
+
+### Autenticación
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| POST | `/api/auth/login` | Iniciar sesión |
+| GET | `/api/auth/verify` | Verificar token JWT |
+| POST | `/api/auth/setup` | Crear primer usuario (solo si no hay usuarios) |
+| POST | `/api/auth/change-password` | Cambiar contraseña |
+
+### Tiempo (sin auth)
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/time` | Timestamp UTC + timezone configurada (usado por ESP32) |
+
+### Dispositivos
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/devices` | Listar todos los dispositivos |
+| GET | `/api/devices/:id` | Obtener dispositivo + todas sus configuraciones |
+| PUT | `/api/devices/:id` | Actualizar nombre/descripción |
+| DELETE | `/api/devices/:id` | Eliminar dispositivo y todos sus datos |
+| POST | `/api/devices/:id/reboot` | Reiniciar (encola si está offline) |
+
+### GPIO
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/devices/:id/gpio` | Listar configuraciones GPIO |
+| POST | `/api/devices/:id/gpio` | Crear/actualizar configuración GPIO |
+| DELETE | `/api/devices/:id/gpio/:pin` | Eliminar configuración GPIO |
+| POST | `/api/devices/:id/gpio/:pin/set` | Enviar valor al pin (encola si offline) |
+
+### Sensores DHT
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/devices/:id/dht` | Listar sensores DHT configurados |
+| POST | `/api/devices/:id/dht` | Agregar/actualizar sensor DHT |
+| DELETE | `/api/devices/:id/dht/:pin` | Eliminar sensor DHT |
+
+### Sensores I2C (AHT20, BMP280, BME280)
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/devices/:id/i2c` | Listar sensores I2C configurados |
+| POST | `/api/devices/:id/i2c` | Agregar/actualizar sensor I2C |
+| DELETE | `/api/devices/:id/i2c/:address` | Eliminar sensor I2C por dirección |
+| POST | `/api/devices/:id/i2c/scan` | Solicitar escaneo del bus I2C (encola si offline) |
+
+### Sensores Ultrasónicos HC-SR04
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/devices/:id/ultrasonic` | Listar sensores ultrasónicos |
+| POST | `/api/devices/:id/ultrasonic` | Agregar/actualizar sensor ultrasónico |
+| DELETE | `/api/devices/:id/ultrasonic/:id` | Eliminar sensor ultrasónico |
+
+### Datos de Sensores (Historial)
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/devices/:id/data` | Historial de lecturas. Query params: `type` (sensor_type), `limit` (default 100) |
+| GET | `/api/devices/:id/summary` | Última lectura de cada tipo de sensor |
+
+### Sistema
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/system/stats` | Estadísticas: total/online/offline dispositivos |
+| GET | `/api/settings/timezone` | Obtener timezone configurada |
+| PUT | `/api/settings/timezone` | Actualizar timezone |
+| GET | `/api/settings` | Todas las configuraciones del sistema |
+
+### Firmware / OTA
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/ota/firmware` | Listar versiones de firmware |
+| POST | `/api/ota/firmware/upload` | Subir nuevo firmware (.bin) |
+| POST | `/api/ota/firmware/:id/activate` | Marcar firmware como activo |
+| DELETE | `/api/ota/firmware/:id` | Eliminar firmware |
+| POST | `/api/ota/update/:deviceId` | Enviar OTA a un dispositivo |
+| POST | `/api/ota/update-all` | Enviar OTA a todos los dispositivos |
+
+---
+
+## WebSocket Protocol
+
+### Endpoints
+- `/ws/device` — conexión para dispositivos ESP32
+- `/ws/dashboard` — conexión para el dashboard web
+
+---
+
+### Mensajes: ESP32 → Backend
+
+**Registro** (al conectar):
+```json
+{
+  "type": "register",
+  "mac_address": "AA:BB:CC:DD:EE:FF",
+  "firmware_version": "2.0.0",
+  "ip_address": "192.168.1.100",
+  "board_model": "ESP32",
+  "board_family": "ESP32"
+}
+```
+
+**Datos de sensores** (cada ciclo activo):
+```json
+{
+  "type": "data",
+  "mac_address": "AA:BB:CC:DD:EE:FF",
+  "timestamp": 1705320600,
+  "payload": {
+    "dht": [
+      { "pin": 4, "name": "DHT Interior", "temperature": 23.5, "humidity": 61.0 }
+    ],
+    "i2c": [
+      { "id": 1, "sensor_type": "AHT20", "i2c_address": 56, "temperature": 22.8, "humidity": 58.5 },
+      { "id": 2, "sensor_type": "BMP280", "i2c_address": 118, "temperature": 23.1, "pressure": 1013.2, "altitude": 45.0 }
+    ],
+    "gpio": [
+      { "pin": 34, "value": 2048, "analog": true },
+      { "pin": 5, "value": 1, "analog": false }
+    ],
+    "ultrasonic": [
+      { "id": 1, "trig_pin": 12, "echo_pin": 13, "distance": 34.2, "triggered": false }
+    ]
+  }
+}
+```
+
+**Resultado de escaneo I2C**:
+```json
+{
+  "type": "i2c_scan_result",
+  "devices": [
+    { "address": 56, "sensor_type": "AHT20" },
+    { "address": 118, "sensor_type": "BMP280" }
+  ]
+}
+```
+
+**Estado OTA**:
+```json
+{
+  "type": "ota_status",
+  "mac_address": "AA:BB:CC:DD:EE:FF",
+  "ota_id": 1,
+  "status": "success",
+  "error": null
+}
+```
+
+---
+
+### Mensajes: Backend → ESP32
+
+**Configuración inicial** (respuesta al register):
+```json
+{
+  "type": "config",
+  "device_id": 1,
+  "gpio": [ { "pin": 5, "mode": "OUTPUT", "name": "Relay", "value": 0 } ],
+  "dht": [ { "pin": 4, "sensor_type": "DHT22", "name": "Interior", "read_interval": 5000 } ],
+  "i2c": [ { "id": 1, "sensor_type": "AHT20", "i2c_address": 56, "name": "AHT20 Principal" } ],
+  "ultrasonic": [ { "id": 1, "trig_pin": 12, "echo_pin": 13, "name": "Sensor Entrada" } ],
+  "ota": null
+}
+```
+
+**Comandos** (`type: "command"`):
+
+| `action` | Descripción | Campos adicionales |
+|----------|-------------|-------------------|
+| `set_gpio` | Establecer valor de un GPIO | `pin`, `value` |
+| `update_gpio` | Reemplazar toda la configuración GPIO | `gpio: [...]` |
+| `remove_gpio` | Eliminar un GPIO | `pin` |
+| `update_dht` | Reemplazar configuración DHT | `dht: [...]` |
+| `remove_dht` | Eliminar un sensor DHT | `pin` |
+| `update_i2c` | Reemplazar configuración I2C | `i2c: [...]` |
+| `remove_i2c` | Eliminar un sensor I2C | `i2c_address` |
+| `scan_i2c` | Escanear bus I2C y reportar | — |
+| `update_ultrasonic` | Reemplazar configuración ultrasónica | `ultrasonic: [...]` |
+| `reboot` | Reiniciar el dispositivo | — |
+| `ota_update` | Iniciar actualización OTA | `ota_id`, `filename`, `filesize`, `checksum` |
+
+---
+
+### Mensajes: Backend → Dashboard
+
+| `type` | Descripción |
+|--------|-------------|
+| `init` | Lista completa de dispositivos al conectar |
+| `device_online` | Dispositivo conectado (objeto device completo) |
+| `device_offline` | Dispositivo desconectado (`mac_address`, `last_seen`) |
+| `device_data` | Nuevas lecturas de sensores (`mac_address`, `device_id`, `payload`, `last_seen`) |
+| `i2c_scan_result` | Resultado de escaneo I2C (`devices: [...]`) |
+| `ota_status` | Estado de actualización OTA |
+
+---
+
+## Deep Sleep y Comandos Pendientes
+
+Los ESP32 operan en ciclos de **Deep Sleep** (60s dormido / ~18s activo). Para garantizar
+que los comandos enviados mientras el dispositivo duerme no se pierdan:
+
+1. Si el dispositivo está **offline**, el comando se guarda en la tabla `pending_commands`
+2. Al reconectarse, el backend envía los comandos pendientes **antes** de cualquier otra operación
+3. El ESP32 procesa los pendientes en los primeros 3 segundos (drain phase)
+4. Luego mantiene una ventana de 15 segundos para comandos en tiempo real
+
+---
+
+## Estructura del Proyecto
+
+```
+MiniOS_Backend/
+├── src/
+│   ├── index.js           # Entry point, configuración Fastify
+│   ├── websocket.js       # WebSocket server (dispositivos + dashboard)
+│   ├── db/
+│   │   ├── database.js    # SQLite wrapper (better-sqlite3)
+│   │   └── schema.sql     # Schema de la base de datos
+│   └── routes/
+│       ├── api.js         # REST API (devices, GPIO, DHT, I2C, ultrasonic, data)
+│       ├── auth.js        # Autenticación JWT
+│       └── ota.js         # Gestión de firmware OTA
+├── public/                # Dashboard web (HTML + CSS + JS)
+│   ├── dashboard.html
+│   ├── css/style.css
+│   └── js/app.js
+├── firmware/              # Archivos .bin subidos para OTA
+├── minios.db              # Base de datos SQLite (generada al iniciar)
+├── .env                   # Variables de entorno (no subir al repo)
+└── package.json
+```
 
 ## Licencia
 

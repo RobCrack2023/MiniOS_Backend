@@ -111,10 +111,6 @@ function handleDeviceMessage(socket, data, setMac) {
       handleOtaStatus(socket, data);
       break;
 
-    case 'offline_detections':
-      handleOfflineDetections(socket, data);
-      break;
-
     case 'i2c_scan_result':
       handleI2cScanResult(socket, data);
       break;
@@ -186,6 +182,16 @@ function handleDeviceRegister(socket, data, setMac) {
     ultrasonic: ultrasonicConfigs,
     ota: pendingOta.length > 0 ? pendingOta[0] : null
   }));
+
+  // Enviar comandos pendientes acumulados mientras estaba offline/dormido
+  const pendingCmds = db.getPendingCommands(device.id);
+  if (pendingCmds.length > 0) {
+    console.log(`📨 Enviando ${pendingCmds.length} comando(s) pendiente(s) a ${mac_address}`);
+    pendingCmds.forEach(({ command }) => {
+      socket.send(JSON.stringify({ type: 'command', ...command }));
+    });
+    db.clearPendingCommands(device.id);
+  }
 
   // Notificar dashboards
   broadcastToDashboards({
@@ -269,23 +275,10 @@ function handleDeviceData(socket, data) {
     });
   }
 
-  // Guardar datos ultrasónicos (el análisis viene del ESP32)
+  // Guardar datos ultrasónicos
   if (payload.ultrasonic && Array.isArray(payload.ultrasonic)) {
     payload.ultrasonic.forEach(sensor => {
-      // Guardar lectura de distancia
       db.saveSensorData(device.id, 'distance', sensor.distance, sensor.trig_pin);
-
-      // El análisis ya viene calculado desde el ESP32 en sensor.analysis
-      // Solo notificar al dashboard si hay detección activa
-      if (sensor.analysis && sensor.analysis.detected) {
-        broadcastToDashboards({
-          type: 'ultrasonic_detection',
-          device_id: device.id,
-          mac_address,
-          sensor_id: sensor.id,
-          detection: sensor.analysis
-        });
-      }
     });
   }
 
@@ -312,47 +305,6 @@ function handleDeviceData(socket, data) {
   });
 }
 
-function handleOfflineDetections(socket, data) {
-  const { mac_address, detections } = data;
-
-  if (!mac_address || !detections || !Array.isArray(detections)) {
-    console.log('Datos de detecciones offline inválidos');
-    return;
-  }
-
-  const normalizedMac = mac_address.toUpperCase().trim();
-  const device = db.getDeviceByMac(normalizedMac);
-
-  if (!device) {
-    console.log(`Dispositivo no encontrado para detecciones offline: ${normalizedMac}`);
-    return;
-  }
-
-  console.log(`📥 Recibidas ${detections.length} detecciones offline de ${device.name}`);
-
-  // Guardar cada detección en la base de datos
-  detections.forEach((det, index) => {
-    // Guardar como evento de detección
-    db.saveSensorData(device.id, 'offline_detection', det.distance, null, JSON.stringify({
-      animal: det.animal,
-      speed: det.speed,
-      duration: det.duration,
-      offline_ts: det.offline_ts
-    }));
-  });
-
-  // Notificar a los dashboards
-  broadcastToDashboards({
-    type: 'offline_detections_received',
-    device_id: device.id,
-    device_name: device.name,
-    mac_address: normalizedMac,
-    count: detections.length,
-    detections: detections
-  });
-
-  console.log(`✅ Guardadas ${detections.length} detecciones offline para ${device.name}`);
-}
 
 function handleI2cScanResult(socket, data) {
   const { devices } = data;
@@ -440,6 +392,16 @@ function sendCommandToDevice(macAddress, command) {
   });
 }
 
+// Intenta enviar un comando; si el dispositivo está offline lo encola
+function sendOrQueueCommand(deviceId, macAddress, command) {
+  const sent = sendCommandToDevice(macAddress, command);
+  if (!sent) {
+    db.savePendingCommand(deviceId, command);
+    console.log(`📋 Comando encolado para dispositivo ${macAddress} (offline): ${command.action}`);
+  }
+  return sent;
+}
+
 function broadcastToDashboards(message) {
   const messageStr = JSON.stringify(message);
   connections.dashboards.forEach(socket => {
@@ -478,6 +440,7 @@ module.exports = {
   setupWebSocket,
   sendToDevice,
   sendCommandToDevice,
+  sendOrQueueCommand,
   broadcastToDashboards,
   broadcastToDevices,
   connections
