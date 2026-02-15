@@ -10,7 +10,11 @@ function app() {
         // Data
         devices: [],
         deviceData: {},
+        deviceLogs: {},
+        deviceLogsExpanded: {},
         firmwareList: [],
+
+        MAX_LOG_ENTRIES: 30,
 
         // WebSocket
         ws: null,
@@ -211,6 +215,11 @@ function app() {
                         ...this.deviceData[data.mac_address],
                         ...data.payload
                     };
+                    // Registrar entrada en el log de transmisiones
+                    if (!this.deviceLogs[data.mac_address]) this.deviceLogs[data.mac_address] = [];
+                    this.deviceLogs[data.mac_address].unshift(this.buildLogEntry(data.payload));
+                    if (this.deviceLogs[data.mac_address].length > this.MAX_LOG_ENTRIES)
+                        this.deviceLogs[data.mac_address].pop();
                     // Marcar dispositivo como online y actualizar last_seen desde el backend
                     const deviceSending = this.devices.find(d => d.mac_address === data.mac_address);
                     if (deviceSending) {
@@ -595,6 +604,20 @@ function app() {
             });
 
             this.deviceUltrasonics = this.deviceUltrasonics.filter(u => u.id !== id);
+        },
+
+        buildLogEntry(payload) {
+            const time = new Date().toLocaleTimeString('es-CL', { hour12: false });
+            const parts = [];
+            if (payload.dht?.length)        parts.push(payload.dht.map(d => `${d.name||'DHT'} ${d.temperature?.toFixed(1)}°C ${d.humidity?.toFixed(0)}%`).join(' | '));
+            if (payload.i2c?.length)        parts.push(payload.i2c.map(s => `${s.name||s.sensor_type} ${s.temperature?.toFixed(1)}°C${s.humidity != null ? ' '+s.humidity.toFixed(0)+'%' : ''}${s.pressure != null ? ' '+s.pressure.toFixed(0)+'hPa' : ''}`).join(' | '));
+            if (payload.gpio?.length)       parts.push('GPIO: ' + payload.gpio.map(g => `${g.name||('P'+g.pin)}=${g.value}`).join(' '));
+            if (payload.ultrasonic?.length) parts.push(payload.ultrasonic.map(u => `${u.name||'US'} ${u.distance?.toFixed(0)}cm`).join(' | '));
+            return { time, text: parts.join(' · ') || 'Sin datos', raw: payload };
+        },
+
+        toggleDeviceLog(mac) {
+            this.deviceLogsExpanded[mac] = !this.deviceLogsExpanded[mac];
         },
 
         // Helper: formato tiempo relativo

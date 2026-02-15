@@ -142,6 +142,27 @@
                                     </template>
                                 </div>
 
+                                <!-- Monitor de Transmisiones -->
+                                <div class="device-monitor" x-show="deviceData[device.mac_address]">
+                                    <div class="monitor-toggle" @click="toggleDeviceLog(device.mac_address)">
+                                        <span>📡 Transmisiones</span>
+                                        <span class="monitor-count" x-show="deviceLogs[device.mac_address]?.length > 0"
+                                              x-text="deviceLogs[device.mac_address]?.length || 0"></span>
+                                        <span class="monitor-arrow" :class="{ open: deviceLogsExpanded[device.mac_address] }">▾</span>
+                                    </div>
+                                    <div class="monitor-log" x-show="deviceLogsExpanded[device.mac_address]" x-transition>
+                                        <template x-if="!deviceLogs[device.mac_address]?.length">
+                                            <div class="log-empty">Sin transmisiones recientes</div>
+                                        </template>
+                                        <template x-for="(entry, idx) in (deviceLogs[device.mac_address] || [])" :key="idx">
+                                            <div class="log-entry" :class="{ 'log-entry-new': idx === 0 }">
+                                                <span class="log-time" x-text="entry.time"></span>
+                                                <span class="log-text" x-text="entry.text"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+
                                 <div class="device-actions">
                                     <button class="btn btn-success btn-sm" @click="openControlPanel(device)" :disabled="!device.is_online">
                                         Panel
