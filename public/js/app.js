@@ -29,6 +29,7 @@ function app() {
         controlPanelDevice: null,
         panelGpios: [],
         panelDhts: [],
+        panelI2cs: [],
         panelUltrasonics: [],
         panelSensorData: {},
 
@@ -242,6 +243,19 @@ function app() {
                                 };
                             });
                         }
+
+                        // Actualizar I2C
+                        if (data.payload.i2c) {
+                            if (!this.panelSensorData.i2c) this.panelSensorData.i2c = {};
+                            data.payload.i2c.forEach(s => {
+                                this.panelSensorData.i2c[s.id] = {
+                                    temperature: s.temperature,
+                                    humidity: s.humidity,
+                                    pressure: s.pressure,
+                                    altitude: s.altitude
+                                };
+                            });
+                        }
                     }
                     break;
 
@@ -313,6 +327,7 @@ function app() {
             const data = await this.api(`/api/devices/${device.id}`);
             this.panelGpios = data.gpio || [];
             this.panelDhts = data.dht || [];
+            this.panelI2cs = data.i2c || [];
             this.panelUltrasonics = data.ultrasonic || [];
 
             // Reset sensor data
@@ -336,6 +351,17 @@ function app() {
                         this.panelSensorData.dht[d.pin] = {
                             temperature: d.temperature,
                             humidity: d.humidity
+                        };
+                    });
+                }
+                if (currentData.i2c) {
+                    this.panelSensorData.i2c = {};
+                    currentData.i2c.forEach(s => {
+                        this.panelSensorData.i2c[s.id] = {
+                            temperature: s.temperature,
+                            humidity: s.humidity,
+                            pressure: s.pressure,
+                            altitude: s.altitude
                         };
                     });
                 }

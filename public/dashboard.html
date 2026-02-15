@@ -634,6 +634,48 @@
                             </template>
                         </div>
                     </div>
+
+                    <!-- I2C Sensors Section -->
+                    <div class="panel-section sensors-section" x-show="panelI2cs.length > 0">
+                        <h3>Sensores I2C</h3>
+                        <div class="sensor-cards">
+                            <template x-for="i2c in panelI2cs" :key="i2c.i2c_address">
+                                <div class="sensor-card-large">
+                                    <div class="sensor-card-name" x-text="i2c.name || (i2c.sensor_type + ' [0x' + i2c.i2c_address.toString(16).toUpperCase() + ']')"></div>
+                                    <div class="sensor-card-values">
+                                        <!-- Temperatura (todos los tipos) -->
+                                        <div class="sensor-item">
+                                            <div class="sensor-icon temp-icon">🌡️</div>
+                                            <div class="sensor-data">
+                                                <span class="sensor-value" x-text="(panelSensorData.i2c?.[i2c.id]?.temperature?.toFixed(1) || '--')"></span>
+                                                <span class="sensor-unit">°C</span>
+                                            </div>
+                                        </div>
+                                        <!-- Humedad (AHT20, BME280) -->
+                                        <template x-if="i2c.sensor_type === 'AHT20' || i2c.sensor_type === 'BME280'">
+                                            <div class="sensor-item">
+                                                <div class="sensor-icon hum-icon">💧</div>
+                                                <div class="sensor-data">
+                                                    <span class="sensor-value" x-text="(panelSensorData.i2c?.[i2c.id]?.humidity?.toFixed(0) || '--')"></span>
+                                                    <span class="sensor-unit">%</span>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <!-- Presión (BMP280, BME280) -->
+                                        <template x-if="i2c.sensor_type === 'BMP280' || i2c.sensor_type === 'BME280'">
+                                            <div class="sensor-item">
+                                                <div class="sensor-icon">📊</div>
+                                                <div class="sensor-data">
+                                                    <span class="sensor-value" x-text="(panelSensorData.i2c?.[i2c.id]?.pressure?.toFixed(1) || '--')"></span>
+                                                    <span class="sensor-unit">hPa</span>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- GPIO Controls Section -->
@@ -692,7 +734,7 @@
                 </div>
 
                 <!-- Empty State -->
-                <div class="panel-empty" x-show="panelGpios.length === 0 && panelDhts.length === 0 && panelUltrasonics.length === 0">
+                <div class="panel-empty" x-show="panelGpios.length === 0 && panelDhts.length === 0 && panelI2cs.length === 0 && panelUltrasonics.length === 0">
                     <p>No hay sensores ni GPIOs configurados.</p>
                     <button class="btn btn-primary" @click="closeControlPanel(); openDeviceModal(controlPanelDevice)">
                         Configurar dispositivo
