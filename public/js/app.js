@@ -609,10 +609,25 @@ function app() {
         buildLogEntry(payload) {
             const time = new Date().toLocaleTimeString('es-CL', { hour12: false });
             const parts = [];
-            if (payload.dht?.length)        parts.push(payload.dht.map(d => `${d.name||'DHT'} ${d.temperature?.toFixed(1)}°C ${d.humidity?.toFixed(0)}%`).join(' | '));
-            if (payload.i2c?.length)        parts.push(payload.i2c.map(s => `${s.name||s.sensor_type} ${s.temperature?.toFixed(1)}°C${s.humidity != null ? ' '+s.humidity.toFixed(0)+'%' : ''}${s.pressure != null ? ' '+s.pressure.toFixed(0)+'hPa' : ''}`).join(' | '));
+            if (payload.dht?.length) parts.push(payload.dht.map(d => {
+                const vals = [];
+                if (d.temperature != null) vals.push(d.temperature.toFixed(1) + '°C');
+                if (d.humidity    != null) vals.push(d.humidity.toFixed(0) + '%');
+                return `${d.name||'DHT'} ${vals.join(' ')}`;
+            }).join(' | '));
+            if (payload.i2c?.length) parts.push(payload.i2c.map(s => {
+                const vals = [];
+                if (s.temperature != null) vals.push(s.temperature.toFixed(1) + '°C');
+                if (s.humidity    != null) vals.push(s.humidity.toFixed(0) + '%');
+                if (s.pressure    != null) vals.push(s.pressure.toFixed(0) + 'hPa');
+                return `${s.name||s.sensor_type} ${vals.join(' ')}`;
+            }).join(' | '));
             if (payload.gpio?.length)       parts.push('GPIO: ' + payload.gpio.map(g => `${g.name||('P'+g.pin)}=${g.value}`).join(' '));
-            if (payload.ultrasonic?.length) parts.push(payload.ultrasonic.map(u => `${u.name||'US'} ${u.distance?.toFixed(0)}cm`).join(' | '));
+            if (payload.ultrasonic?.length) parts.push(payload.ultrasonic.map(u => {
+                const vals = [];
+                if (u.distance != null) vals.push(u.distance.toFixed(0) + 'cm');
+                return `${u.name||'US'} ${vals.join(' ')}`;
+            }).join(' | '));
             return { time, text: parts.join(' · ') || 'Sin datos', raw: payload };
         },
 
