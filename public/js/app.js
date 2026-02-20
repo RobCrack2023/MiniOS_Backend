@@ -58,6 +58,11 @@ function app() {
         historyChartInstance: null,
         historyLoading: false,
         historyLimit: 100,
+        historyRangeMode: 'limit',   // 'limit' | 'preset' | 'custom'
+        historyPreset: '',            // '1h' | '6h' | '24h' | '7d'
+        historyFrom: '',              // datetime-local string (hora local)
+        historyTo: '',
+        historyRecordCount: null,
         newFirmware: { version: '', description: '', file: null },
         passwordForm: { current: '', new: '' },
         timezoneForm: { timezone: 'America/Santiago' },
@@ -776,6 +781,11 @@ function app() {
             this.historyTab = '';
             this.historyLoading = true;
             this.showHistoryModal = true;
+            this.historyRangeMode = 'limit';
+            this.historyPreset = '';
+            this.historyFrom = '';
+            this.historyTo = '';
+            this.historyRecordCount = null;
 
             if (this.historyChartInstance) {
                 this.historyChartInstance.destroy();
@@ -784,7 +794,7 @@ function app() {
 
             const [configData, historyData] = await Promise.all([
                 this.api(`/api/devices/${device.id}`),
-                this.api(`/api/devices/${device.id}/data?limit=${this.historyLimit}`)
+                this.api(this.buildHistoryUrl())
             ]);
 
             this.historyConfig = {
@@ -802,6 +812,75 @@ function app() {
             }
         },
 
+        buildHistoryUrl() {
+            const id = this.historyDevice.id;
+            const params = new URLSearchParams();
+            if (this.historyRangeMode === 'limit') {
+                params.set('limit', this.historyLimit);
+            } else if (this.historyRangeMode === 'preset' && this.historyPreset) {
+                const ms = { '1h': 3600000, '6h': 21600000, '24h': 86400000, '7d': 604800000 };
+                params.set('from', new Date(Date.now() - ms[this.historyPreset]).toISOString());
+                params.set('to', new Date().toISOString());
+            } else if (this.historyRangeMode === 'custom') {
+                if (this.historyFrom) params.set('from', new Date(this.historyFrom).toISOString());
+                if (this.historyTo)   params.set('to',   new Date(this.historyTo).toISOString());
+            }
+            return `/api/devices/${id}/data?${params.toString()}`;
+        },
+
+        buildExportUrl() {
+            const id = this.historyDevice.id;
+            const params = new URLSearchParams();
+            if (this.historyTab) params.set('type', this.historyTab);
+            if (this.historyRangeMode === 'limit') {
+                params.set('limit', this.historyLimit);
+            } else if (this.historyRangeMode === 'preset' && this.historyPreset) {
+                const ms = { '1h': 3600000, '6h': 21600000, '24h': 86400000, '7d': 604800000 };
+                params.set('from', new Date(Date.now() - ms[this.historyPreset]).toISOString());
+                params.set('to', new Date().toISOString());
+            } else if (this.historyRangeMode === 'custom') {
+                if (this.historyFrom) params.set('from', new Date(this.historyFrom).toISOString());
+                if (this.historyTo)   params.set('to',   new Date(this.historyTo).toISOString());
+            }
+            return `/api/devices/${id}/data/export?${params.toString()}`;
+        },
+
+        applyPreset(preset) {
+            this.historyRangeMode = 'preset';
+            this.historyPreset = preset;
+            this.historyFrom = '';
+            this.historyTo = '';
+            this.reloadHistoryData();
+        },
+
+        clearDateFilter() {
+            this.historyRangeMode = 'limit';
+            this.historyPreset = '';
+            this.historyFrom = '';
+            this.historyTo = '';
+            this.reloadHistoryData();
+        },
+
+        exportHistoryCsv() {
+            if (!this.historyDevice) return;
+            fetch(this.buildExportUrl(), { headers: { 'Authorization': `Bearer ${this.token}` } })
+                .then(res => {
+                    if (!res.ok) throw new Error('Error al exportar');
+                    const disp = res.headers.get('Content-Disposition') || '';
+                    const match = disp.match(/filename="(.+)"/);
+                    const filename = match ? match[1] : 'export.csv';
+                    return res.blob().then(blob => ({ blob, filename }));
+                })
+                .then(({ blob, filename }) => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                })
+                .catch(err => alert('Error al exportar CSV: ' + err.message));
+        },
+
         closeHistoryModal() {
             if (this.historyChartInstance) {
                 this.historyChartInstance.destroy();
@@ -815,8 +894,9 @@ function app() {
         async reloadHistoryData() {
             if (!this.historyDevice) return;
             this.historyLoading = true;
-            const data = await this.api(`/api/devices/${this.historyDevice.id}/data?limit=${this.historyLimit}`);
+            const data = await this.api(this.buildHistoryUrl());
             this.historyRawData = data.data || [];
+            this.historyRecordCount = this.historyRawData.length;
             this.historyLoading = false;
 
             const types = this.getHistoryTypes();

@@ -821,20 +821,61 @@
 
                 <!-- Historical Data Section -->
                 <div>
+                    <!-- Encabezado con badge de contador -->
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                         <h4 style="margin: 0; color: #555; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px;">
                             📊 Historial de Capturas
                         </h4>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <select x-model="historyLimit" @change="reloadHistoryData()" style="font-size: 0.82em; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px;">
-                                <option value="50">50 registros</option>
-                                <option value="100">100 registros</option>
-                                <option value="200">200 registros</option>
-                                <option value="500">500 registros</option>
-                            </select>
-                            <button class="btn btn-secondary btn-sm" @click="reloadHistoryData()" :disabled="historyLoading"
-                                    title="Actualizar" style="padding: 4px 8px; font-size: 13px;">↻</button>
-                        </div>
+                        <span x-show="historyRangeMode !== 'limit' && historyRecordCount !== null"
+                              style="font-size: 0.8em; color: #666; background: #f0f0f0; border-radius: 10px; padding: 2px 10px;">
+                            <span x-text="historyRecordCount"></span> registros
+                        </span>
+                    </div>
+
+                    <!-- Toolbar de filtros -->
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; padding: 10px 12px; background: #f8f9fa; border: 1px solid #e8e8e8; border-radius: 6px;">
+
+                        <span style="font-size: 0.78em; color: #888;">Rango:</span>
+                        <button class="btn btn-sm" :class="historyPreset==='1h'?'btn-primary':'btn-secondary'"
+                                @click="applyPreset('1h')" style="font-size:0.78em;padding:3px 8px;">Última hora</button>
+                        <button class="btn btn-sm" :class="historyPreset==='6h'?'btn-primary':'btn-secondary'"
+                                @click="applyPreset('6h')" style="font-size:0.78em;padding:3px 8px;">6h</button>
+                        <button class="btn btn-sm" :class="historyPreset==='24h'?'btn-primary':'btn-secondary'"
+                                @click="applyPreset('24h')" style="font-size:0.78em;padding:3px 8px;">24h</button>
+                        <button class="btn btn-sm" :class="historyPreset==='7d'?'btn-primary':'btn-secondary'"
+                                @click="applyPreset('7d')" style="font-size:0.78em;padding:3px 8px;">7 días</button>
+
+                        <span style="color:#ccc;margin:0 2px;">|</span>
+
+                        <input type="datetime-local" x-model="historyFrom"
+                               @change="historyRangeMode='custom';historyPreset='';reloadHistoryData()"
+                               :max="historyTo||undefined"
+                               style="font-size:0.78em;padding:3px 6px;border:1px solid #ddd;border-radius:4px;">
+                        <span style="font-size:0.78em;color:#888;">→</span>
+                        <input type="datetime-local" x-model="historyTo"
+                               @change="historyRangeMode='custom';historyPreset='';reloadHistoryData()"
+                               :min="historyFrom||undefined"
+                               style="font-size:0.78em;padding:3px 6px;border:1px solid #ddd;border-radius:4px;">
+
+                        <span style="color:#ccc;margin:0 2px;">|</span>
+
+                        <select x-show="historyRangeMode==='limit'" x-model="historyLimit" @change="reloadHistoryData()"
+                                style="font-size:0.78em;padding:3px 6px;border:1px solid #ddd;border-radius:4px;">
+                            <option value="50">50 registros</option>
+                            <option value="100">100 registros</option>
+                            <option value="200">200 registros</option>
+                            <option value="500">500 registros</option>
+                        </select>
+                        <button x-show="historyRangeMode!=='limit'" class="btn btn-sm btn-secondary"
+                                @click="clearDateFilter()" style="font-size:0.78em;padding:3px 8px;">✕ Limpiar</button>
+
+                        <div style="flex:1;"></div>
+
+                        <button class="btn btn-secondary btn-sm" @click="reloadHistoryData()" :disabled="historyLoading"
+                                title="Actualizar" style="padding:4px 8px;font-size:13px;">↻</button>
+                        <button @click="exportHistoryCsv()"
+                                style="font-size:0.78em;padding:3px 10px;background:#27ae60;color:white;border:none;border-radius:4px;cursor:pointer;"
+                                title="Descargar CSV con el filtro actual">⬇ CSV</button>
                     </div>
 
                     <!-- Loading -->

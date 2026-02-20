@@ -310,10 +310,30 @@ async function apiRoutes(fastify, options) {
   // Obtener datos históricos
   fastify.get('/devices/:id/data', async (request, reply) => {
     const { id } = request.params;
-    const { type, limit = 100 } = request.query;
-
-    const data = db.getSensorData(id, type || null, parseInt(limit));
+    const { type, limit = 100, from, to } = request.query;
+    const data = db.getSensorData(id, type || null, parseInt(limit), from || null, to || null);
     return { data };
+  });
+
+  // Exportar datos históricos como CSV
+  fastify.get('/devices/:id/data/export', async (request, reply) => {
+    const { id } = request.params;
+    const { type, limit = 10000, from, to } = request.query;
+    const data = db.getSensorData(id, type || null, parseInt(limit), from || null, to || null);
+
+    const header = 'fecha,sensor,pin,valor\n';
+    const rows = data.map(r =>
+      `${r.recorded_at},${r.sensor_type},${r.sensor_pin ?? ''},${r.value}`
+    ).join('\n');
+
+    const device = db.getDeviceById(id);
+    const deviceName = (device?.name || `device_${id}`).replace(/[^a-z0-9]/gi, '_');
+    const dateTag = new Date().toISOString().slice(0, 10);
+
+    reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${deviceName}_${dateTag}.csv"`)
+      .send(header + rows);
   });
 
   // Obtener resumen de datos (última lectura de cada tipo)

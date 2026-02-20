@@ -293,19 +293,21 @@ function saveSensorData(deviceId, sensorType, value, pin = null) {
   return stmt.run(deviceId, sensorType, pin, value, new Date().toISOString());
 }
 
-function getSensorData(deviceId, sensorType = null, limit = 100) {
-  const rows = sensorType
-    ? db.prepare(`
-        SELECT * FROM sensor_data
-        WHERE device_id = ? AND sensor_type = ?
-        ORDER BY recorded_at DESC LIMIT ?
-      `).all(deviceId, sensorType, limit)
-    : db.prepare(`
-        SELECT * FROM sensor_data
-        WHERE device_id = ?
-        ORDER BY recorded_at DESC LIMIT ?
-      `).all(deviceId, limit);
+function getSensorData(deviceId, sensorType = null, limit = 100, fromDate = null, toDate = null) {
+  const hasDateRange = fromDate || toDate;
+  const effectiveLimit = hasDateRange ? 10000 : limit;
 
+  const conditions = ['device_id = ?'];
+  const params = [deviceId];
+
+  if (sensorType) { conditions.push('sensor_type = ?'); params.push(sensorType); }
+  if (fromDate)   { conditions.push('recorded_at >= ?'); params.push(fromDate); }
+  if (toDate)     { conditions.push('recorded_at <= ?'); params.push(toDate); }
+
+  const sql = `SELECT * FROM sensor_data WHERE ${conditions.join(' AND ')} ORDER BY recorded_at DESC LIMIT ?`;
+  params.push(effectiveLimit);
+
+  const rows = db.prepare(sql).all(...params);
   return rows.map(r => ({ ...r, recorded_at: toUtcIso(r.recorded_at) }));
 }
 
