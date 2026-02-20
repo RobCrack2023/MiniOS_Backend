@@ -893,6 +893,11 @@ function app() {
 
         async reloadHistoryData() {
             if (!this.historyDevice) return;
+            // Cancelar render pendiente anterior si lo hay
+            if (this._historyRenderTimer) {
+                clearTimeout(this._historyRenderTimer);
+                this._historyRenderTimer = null;
+            }
             this.historyLoading = true;
             const data = await this.api(this.buildHistoryUrl());
             this.historyRawData = data.data || [];
@@ -908,7 +913,10 @@ function app() {
                 this.historyChartInstance = null;
             }
             if (this.historyTab) {
-                setTimeout(() => this.renderHistoryChart(), 50);
+                this._historyRenderTimer = setTimeout(() => {
+                    this._historyRenderTimer = null;
+                    this.renderHistoryChart();
+                }, 50);
             }
         },
 
@@ -985,6 +993,10 @@ function app() {
         renderHistoryChart() {
             const canvas = document.getElementById('historyChart');
             if (!canvas || !this.historyTab) return;
+
+            // Destruir cualquier instancia huérfana en el canvas (Chart.js v3)
+            const orphan = Chart.getChart(canvas);
+            if (orphan) orphan.destroy();
 
             if (this.historyChartInstance) {
                 this.historyChartInstance.destroy();
