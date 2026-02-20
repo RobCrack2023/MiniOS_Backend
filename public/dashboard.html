@@ -315,7 +315,8 @@
     </div>
 
     <!-- Device Config Modal -->
-    <div class="modal-overlay" x-show="showDeviceModal" @click.self="showDeviceModal = false" style="display: none;">
+    <template x-if="showDeviceModal && selectedDevice">
+    <div class="modal-overlay" @click.self="showDeviceModal = false">
         <div class="modal">
             <div class="modal-header">
                 <h2 x-text="selectedDevice?.name"></h2>
@@ -601,6 +602,7 @@
             </div>
         </div>
     </div>
+    </template>
 
     <!-- Control Panel Modal -->
     <div class="modal-overlay control-panel-overlay" x-show="showControlPanel" @click.self="closeControlPanel()" style="display: none;">
