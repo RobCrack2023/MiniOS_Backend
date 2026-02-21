@@ -48,6 +48,15 @@ async function apiRoutes(fastify, options) {
     }
 
     const updated = db.updateDevice(id, request.body);
+
+    // Si se actualizó el sleep_interval, enviar/encolar comando al dispositivo
+    if (request.body.sleep_interval !== undefined) {
+      sendOrQueueCommand(device.id, device.mac_address, {
+        action: 'set_sleep_interval',
+        sleep_interval: request.body.sleep_interval
+      });
+    }
+
     return { device: updated };
   });
 

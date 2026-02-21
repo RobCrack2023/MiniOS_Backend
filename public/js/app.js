@@ -307,7 +307,10 @@ function app() {
         },
 
         async openDeviceModal(device) {
-            this.selectedDevice = { ...device };
+            this.selectedDevice = {
+                ...device,
+                sleep_interval_s: Math.round((device.sleep_interval || 60000) / 1000)
+            };
             this.deviceTab = 'info';
 
             // Cargar configuraciones
@@ -325,7 +328,8 @@ function app() {
                 method: 'PUT',
                 body: JSON.stringify({
                     name: this.selectedDevice.name,
-                    description: this.selectedDevice.description
+                    description: this.selectedDevice.description,
+                    sleep_interval: this.selectedDevice.sleep_interval
                 })
             });
 

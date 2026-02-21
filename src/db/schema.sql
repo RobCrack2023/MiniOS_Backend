@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS devices (
     board_family TEXT DEFAULT 'ESP32',          -- 🆕 Familia del chip: ESP32, ESP32-S3, ESP32-C3, ESP32-S2
     is_online INTEGER DEFAULT 0,
     last_seen DATETIME,
+    sleep_interval INTEGER DEFAULT 60000,           -- Intervalo de deep sleep en ms (default 60s)
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

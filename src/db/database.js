@@ -29,6 +29,13 @@ function initDatabase() {
   const schema = fs.readFileSync(schemaPath, 'utf8');
   db.exec(schema);
 
+  // Migraciones: añadir columnas nuevas si no existen
+  const deviceCols = db.prepare("PRAGMA table_info(devices)").all().map(c => c.name);
+  if (!deviceCols.includes('sleep_interval')) {
+    db.exec('ALTER TABLE devices ADD COLUMN sleep_interval INTEGER DEFAULT 60000');
+    console.log('🔧 Migración: columna sleep_interval añadida a devices');
+  }
+
   console.log('📦 Base de datos inicializada');
 
   // Crear usuario admin por defecto si no hay usuarios
@@ -120,6 +127,10 @@ function updateDevice(id, data) {
   if (data.last_seen !== undefined) {
     fields.push('last_seen = ?');
     values.push(data.last_seen);
+  }
+  if (data.sleep_interval !== undefined) {
+    fields.push('sleep_interval = ?');
+    values.push(data.sleep_interval);
   }
 
   if (fields.length === 0) return getDeviceById(id);

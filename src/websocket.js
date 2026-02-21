@@ -176,6 +176,7 @@ function handleDeviceRegister(socket, data, setMac) {
   socket.send(JSON.stringify({
     type: 'config',
     device_id: device.id,
+    sleep_interval: device.sleep_interval || 60000,
     gpio: gpioConfigs,
     dht: dhtConfigs,
     i2c: i2cConfigs,

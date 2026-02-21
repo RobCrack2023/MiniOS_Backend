@@ -342,6 +342,19 @@
                         <label>Descripción</label>
                         <textarea x-model="selectedDevice.description" rows="3"></textarea>
                     </div>
+                    <div class="form-group">
+                        <label>Intervalo de Deep Sleep (segundos)</label>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <input type="number" x-model.number="selectedDevice.sleep_interval_s"
+                                   min="5" max="3600" step="5"
+                                   style="width:120px;"
+                                   @input="selectedDevice.sleep_interval = selectedDevice.sleep_interval_s * 1000">
+                            <span style="font-size:0.85em;color:#888;">
+                                = <span x-text="selectedDevice.sleep_interval || 60000"></span> ms
+                            </span>
+                        </div>
+                        <small style="color:#999;">Tiempo que el dispositivo duerme entre ciclos (mínimo 5s).</small>
+                    </div>
                     <button class="btn btn-primary" @click="saveDevice()">Guardar</button>
                 </div>
 
