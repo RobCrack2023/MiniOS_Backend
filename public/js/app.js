@@ -1018,15 +1018,16 @@ function app() {
                 byPin[key].push(r);
             });
 
+            const largeDataset = typeData.length > 300;
             const colors = ['#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0', '#00BCD4'];
             const datasets = Object.entries(byPin).map(([pin, records], i) => ({
                 label: this.getSensorPinLabel(pin),
                 data: records.map(r => r.value),
                 borderColor: colors[i % colors.length],
                 backgroundColor: colors[i % colors.length] + '22',
-                borderWidth: 2,
+                borderWidth: largeDataset ? 1 : 2,
                 pointRadius: records.length > 50 ? 0 : 3,
-                tension: 0.3,
+                tension: largeDataset ? 0 : 0.3,
                 fill: false
             }));
 
@@ -1039,6 +1040,7 @@ function app() {
                 type: 'line',
                 data: { labels, datasets },
                 options: {
+                    animation: largeDataset ? false : {},
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
