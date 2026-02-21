@@ -1027,7 +1027,7 @@ function app() {
                 backgroundColor: colors[i % colors.length] + '22',
                 borderWidth: largeDataset ? 1 : 2,
                 pointRadius: records.length > 50 ? 0 : 3,
-                tension: largeDataset ? 0 : 0.3,
+                tension: 0,
                 fill: false
             }));
 
@@ -1040,7 +1040,7 @@ function app() {
                 type: 'line',
                 data: { labels, datasets },
                 options: {
-                    animation: largeDataset ? false : {},
+                    animation: false,
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
