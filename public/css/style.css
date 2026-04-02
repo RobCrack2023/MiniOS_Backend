@@ -8,14 +8,14 @@
    DESIGN TOKENS
    ============================================ */
 :root {
-    --bg-base:      #070b11;
-    --bg-surface:   #0c1220;
-    --bg-raised:    #111927;
-    --bg-overlay:   #162133;
-    --bg-input:     #0a1018;
+    --bg-base:      #111c2b;
+    --bg-surface:   #172233;
+    --bg-raised:    #1d2d42;
+    --bg-overlay:   #233450;
+    --bg-input:     #131e2e;
 
-    --border:       #1a2e47;
-    --border-light: #1e3a55;
+    --border:       #2a4060;
+    --border-light: #335070;
     --border-accent:#00b4d8;
 
     --primary:      #00b4d8;
@@ -32,14 +32,14 @@
     --neon-green:   #00ff88;
     --neon-glow:    rgba(0,255,136,0.2);
 
-    --text-primary: #d6e8f7;
-    --text-secondary:#7b9cb8;
-    --text-muted:   #3d5a73;
+    --text-primary: #e8f4ff;
+    --text-secondary:#9db8d4;
+    --text-muted:   #5a7a98;
     --text-accent:  #00b4d8;
 
-    --dark:         #0c1220;
-    --light:        #0f1826;
-    --gray:         #4a6580;
+    --dark:         #172233;
+    --light:        #1d2d42;
+    --gray:         #5a7a98;
 
     --font-ui:      'Rajdhani', system-ui, sans-serif;
     --font-mono:    'JetBrains Mono', 'Courier New', monospace;
