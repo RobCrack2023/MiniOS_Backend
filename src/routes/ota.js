@@ -2,9 +2,19 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const db = require('../db/database');
-const { sendCommandToDevice, broadcastToDevices, connections } = require('../websocket');
+const { sendCommandToDevice, sendOrQueueCommand } = require('../websocket');
+const { checkDeviceToken, extractDeviceToken } = require('../config');
+
+// Hook para los endpoints que consumen los ESP32 (no tienen JWT).
+// Solo exige token si DEVICE_TOKEN está configurado.
+async function authenticateDevice(request, reply) {
+  if (!checkDeviceToken(extractDeviceToken(request))) {
+    return reply.status(401).send({ error: 'Token de dispositivo inválido' });
+  }
+}
 
 const FIRMWARE_DIR = path.join(__dirname, '..', '..', 'firmware');
+const MAX_FIRMWARE_BYTES = Number(process.env.MAX_FIRMWARE_MB || 8) * 1024 * 1024;
 
 async function otaRoutes(fastify, options) {
 
@@ -36,9 +46,23 @@ async function otaRoutes(fastify, options) {
       return reply.status(400).send({ error: 'Versión requerida' });
     }
 
+    // La versión acaba dentro del nombre del archivo, así que se rechaza cualquier
+    // carácter que pudiera sacar la escritura del directorio de firmware.
+    // Se rechaza en vez de sanear: mutilar "../../evil" a "....evil" y guardarlo
+    // como si nada deja al usuario con una versión que no es la que escribió.
+    const rawVersion = String(version.value).trim();
+
+    if (!/^[A-Za-z0-9._-]{1,32}$/.test(rawVersion) || /^\.+$/.test(rawVersion)) {
+      return reply.status(400).send({
+        error: 'Versión inválida: solo letras, números, punto, guion y guion bajo (máx. 32)'
+      });
+    }
+
+    const safeVersion = rawVersion;
+
     // Generar nombre único
     const timestamp = Date.now();
-    const filename = `firmware_${version.value}_${timestamp}.bin`;
+    const filename = path.basename(`firmware_${safeVersion}_${timestamp}.bin`);
     const filepath = path.join(FIRMWARE_DIR, filename);
 
     // Asegurar que existe el directorio
@@ -46,12 +70,31 @@ async function otaRoutes(fastify, options) {
       fs.mkdirSync(FIRMWARE_DIR, { recursive: true });
     }
 
-    // Guardar archivo y calcular checksum
+    // Leer el archivo completo en memoria (el límite de multipart lo acota)
     const chunks = [];
     for await (const chunk of data.file) {
       chunks.push(chunk);
     }
     const buffer = Buffer.concat(chunks);
+
+    // Si el archivo superó el límite se recibe truncado: guardarlo significaría
+    // repartir por OTA un binario incompleto y dejar los dispositivos inservibles.
+    if (data.file.truncated) {
+      return reply.status(413).send({
+        error: `El firmware supera el límite de ${Math.round(MAX_FIRMWARE_BYTES / (1024 * 1024))} MB`
+      });
+    }
+
+    if (buffer.length === 0) {
+      return reply.status(400).send({ error: 'El archivo está vacío' });
+    }
+
+    // Los binarios de ESP32 empiezan por el magic byte 0xE9
+    if (buffer[0] !== 0xE9) {
+      return reply.status(400).send({
+        error: 'El archivo no parece un firmware de ESP32 (falta el magic byte 0xE9)'
+      });
+    }
 
     fs.writeFileSync(filepath, buffer);
 
@@ -170,17 +213,13 @@ async function otaRoutes(fastify, options) {
     const tasks = [];
 
     for (const device of devices) {
-      // Solo dispositivos online y con versión diferente
+      // Solo los que no tengan ya esta versión
       if (device.firmware_version !== firmware.version) {
         const result = db.createOtaTask(device.id, firmware_id);
-        tasks.push({
-          device_id: device.id,
-          mac_address: device.mac_address,
-          ota_id: result.lastInsertRowid
-        });
 
-        // Enviar comando al dispositivo
-        sendCommandToDevice(device.mac_address, {
+        // Encolar si está dormido: antes se usaba sendCommandToDevice y los
+        // dispositivos offline se quedaban sin aviso pese a contarse como tarea
+        const sent = sendOrQueueCommand(device.id, device.mac_address, {
           action: 'ota_update',
           ota_id: result.lastInsertRowid,
           version: firmware.version,
@@ -188,12 +227,22 @@ async function otaRoutes(fastify, options) {
           checksum: firmware.checksum,
           filesize: firmware.filesize
         });
+
+        tasks.push({
+          device_id: device.id,
+          mac_address: device.mac_address,
+          ota_id: result.lastInsertRowid,
+          sent,
+          queued: !sent
+        });
       }
     }
 
     return {
       success: true,
       tasks_created: tasks.length,
+      sent_now: tasks.filter(t => t.sent).length,
+      queued: tasks.filter(t => t.queued).length,
       tasks
     };
   });
@@ -203,8 +252,18 @@ async function otaRoutes(fastify, options) {
   // ============================================
 
   // Endpoint para que el ESP32 descargue el firmware
-  fastify.get('/download/:filename', async (request, reply) => {
-    const { filename } = request.params;
+  fastify.get('/download/:filename', {
+    preHandler: [authenticateDevice]
+  }, async (request, reply) => {
+    // path.basename descarta cualquier '../' (Fastify decodifica %2f en los params),
+    // y además el nombre debe existir en la tabla firmware: nunca se sirve un
+    // archivo arbitrario del disco.
+    const filename = path.basename(request.params.filename || '');
+
+    if (!filename || !db.getFirmwareByFilename(filename)) {
+      return reply.status(404).send({ error: 'Firmware no encontrado' });
+    }
+
     const filepath = path.join(FIRMWARE_DIR, filename);
 
     if (!fs.existsSync(filepath)) {
@@ -222,8 +281,10 @@ async function otaRoutes(fastify, options) {
   });
 
   // Verificar si hay actualización disponible
-  fastify.get('/check/:mac', async (request, reply) => {
-    const { mac } = request.params;
+  fastify.get('/check/:mac', {
+    preHandler: [authenticateDevice]
+  }, async (request, reply) => {
+    const mac = (request.params.mac || '').toUpperCase().trim();
 
     const device = db.getDeviceByMac(mac);
     if (!device) {
@@ -248,10 +309,20 @@ async function otaRoutes(fastify, options) {
   });
 
   // Reportar estado de OTA desde ESP32
-  fastify.post('/status', async (request, reply) => {
-    const { ota_id, status, error } = request.body;
+  fastify.post('/status', {
+    preHandler: [authenticateDevice]
+  }, async (request, reply) => {
+    const { ota_id, status, error } = request.body || {};
 
-    db.updateOtaTask(ota_id, status, error);
+    if (!db.isValidOtaStatus(status)) {
+      return reply.status(400).send({ error: 'Estado OTA inválido' });
+    }
+
+    const result = db.updateOtaTask(ota_id, status, error);
+
+    if (result.changes === 0) {
+      return reply.status(404).send({ error: 'Tarea OTA no encontrada' });
+    }
 
     return { success: true };
   });

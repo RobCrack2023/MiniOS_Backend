@@ -1,5 +1,6 @@
 const Database = require('better-sqlite3');
 const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -29,21 +30,50 @@ function initDatabase() {
   const schema = fs.readFileSync(schemaPath, 'utf8');
   db.exec(schema);
 
-  // Migraciones: añadir columnas nuevas si no existen
+  // Migraciones: añadir columnas nuevas si no existen.
+  // Las tablas nuevas las crea schema.sql con IF NOT EXISTS, pero las columnas
+  // añadidas a tablas existentes hay que migrarlas a mano (una BD anterior a la
+  // v2 no tenía board_model ni board_family y las consultas fallaban).
   const deviceCols = db.prepare("PRAGMA table_info(devices)").all().map(c => c.name);
-  if (!deviceCols.includes('sleep_interval')) {
-    db.exec('ALTER TABLE devices ADD COLUMN sleep_interval INTEGER DEFAULT 60000');
-    console.log('🔧 Migración: columna sleep_interval añadida a devices');
+
+  const deviceMigrations = [
+    ['sleep_interval', 'INTEGER DEFAULT 60000'],
+    ['board_model', "TEXT DEFAULT 'ESP32'"],
+    ['board_family', "TEXT DEFAULT 'ESP32'"]
+  ];
+
+  for (const [column, definition] of deviceMigrations) {
+    if (!deviceCols.includes(column)) {
+      db.exec(`ALTER TABLE devices ADD COLUMN ${column} ${definition}`);
+      console.log(`🔧 Migración: columna ${column} añadida a devices`);
+    }
   }
 
   console.log('📦 Base de datos inicializada');
 
-  // Crear usuario admin por defecto si no hay usuarios
+  // Crear usuario admin si no hay usuarios.
+  // La contraseña es aleatoria y se muestra una sola vez: nunca se despliega
+  // una instalación con credenciales conocidas.
   const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
   if (userCount.count === 0) {
-    const hashedPassword = bcrypt.hashSync('admin123', 10);
+    const generated = crypto.randomBytes(12).toString('base64url');
+    const hashedPassword = bcrypt.hashSync(generated, 10);
     db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run('admin', hashedPassword);
-    console.log('👤 Usuario admin creado (admin/admin123)');
+    console.log('');
+    console.log('👤 Usuario admin creado.');
+    console.log(`   Usuario:    admin`);
+    console.log(`   Contraseña: ${generated}`);
+    console.log('   ⚠️  Anótala ahora: no se volverá a mostrar. Cámbiala desde Configuración.');
+    console.log('');
+  } else {
+    // Avisar si una instalación antigua sigue con la contraseña por defecto
+    const admin = db.prepare('SELECT password FROM users WHERE username = ?').get('admin');
+    if (admin && bcrypt.compareSync('admin123', admin.password)) {
+      console.warn('');
+      console.warn('🚨 El usuario admin todavía usa la contraseña por defecto "admin123".');
+      console.warn('   Cámbiala YA en el dashboard: Configuración → Cambiar contraseña.');
+      console.warn('');
+    }
   }
 
   return db;
@@ -90,6 +120,25 @@ function createDevice(macAddress, name = 'Nuevo Dispositivo') {
   `);
   const result = stmt.run(macAddress, name, new Date().toISOString());
   return getDeviceById(result.lastInsertRowid);
+}
+
+/**
+ * Devuelve el dispositivo de esa MAC, creándolo si no existe.
+ * Atómico: si dos conexiones con la misma MAC llegan a la vez, una crea la fila y
+ * la otra recupera la existente en lugar de reventar contra UNIQUE(mac_address).
+ */
+function getOrCreateDevice(macAddress, name = 'Nuevo Dispositivo') {
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO devices (mac_address, name, created_at)
+    VALUES (?, ?, ?)
+  `);
+
+  const result = insert.run(macAddress, name, new Date().toISOString());
+
+  return {
+    device: getDeviceByMac(macAddress),
+    created: result.changes > 0
+  };
 }
 
 function updateDevice(id, data) {
@@ -304,9 +353,15 @@ function saveSensorData(deviceId, sensorType, value, pin = null) {
   return stmt.run(deviceId, sensorType, pin, value, new Date().toISOString());
 }
 
+const MAX_SENSOR_ROWS = 50000;
+
 function getSensorData(deviceId, sensorType = null, limit = 100, fromDate = null, toDate = null) {
-  const hasDateRange = fromDate || toDate;
-  const effectiveLimit = hasDateRange ? 10000 : limit;
+  // Antes, cualquier consulta con rango de fechas ignoraba el limit y devolvía
+  // 10.000 filas en silencio: el gráfico parecía completo sin serlo.
+  const parsed = Number.parseInt(limit, 10);
+  const effectiveLimit = Number.isInteger(parsed) && parsed > 0
+    ? Math.min(parsed, MAX_SENSOR_ROWS)
+    : 100;
 
   const conditions = ['device_id = ?'];
   const params = [deviceId];
@@ -322,13 +377,33 @@ function getSensorData(deviceId, sensorType = null, limit = 100, fromDate = null
   return rows.map(r => ({ ...r, recorded_at: toUtcIso(r.recorded_at) }));
 }
 
-// Limpiar datos antiguos (más de 7 días)
-function cleanOldSensorData(days = 7) {
-  const stmt = db.prepare(`
-    DELETE FROM sensor_data
-    WHERE recorded_at < datetime('now', '-' || ? || ' days')
-  `);
-  return stmt.run(days);
+/** Total de filas que cumplen el filtro, para detectar resultados truncados. */
+function countSensorData(deviceId, sensorType = null, fromDate = null, toDate = null) {
+  const conditions = ['device_id = ?'];
+  const params = [deviceId];
+
+  if (sensorType) { conditions.push('sensor_type = ?'); params.push(sensorType); }
+  if (fromDate)   { conditions.push('recorded_at >= ?'); params.push(fromDate); }
+  if (toDate)     { conditions.push('recorded_at <= ?'); params.push(toDate); }
+
+  const row = db.prepare(
+    `SELECT COUNT(*) as total FROM sensor_data WHERE ${conditions.join(' AND ')}`
+  ).get(...params);
+
+  return row.total;
+}
+
+/**
+ * Borra el historial más antiguo que `days`.
+ * El corte se calcula en JS porque recorded_at se guarda en ISO 8601 con 'T' y 'Z',
+ * y datetime('now') devuelve 'YYYY-MM-DD HH:MM:SS': comparar ambos formatos como
+ * texto es frágil.
+ */
+function cleanOldSensorData(days = 30) {
+  if (!Number.isInteger(days) || days <= 0) return { changes: 0 };
+
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  return db.prepare('DELETE FROM sensor_data WHERE recorded_at < ?').run(cutoff);
 }
 
 // ============================================
@@ -342,6 +417,12 @@ function getFirmwareList() {
 
 function getFirmwareById(id) {
   const fw = db.prepare('SELECT * FROM firmware WHERE id = ?').get(id);
+  if (!fw) return null;
+  return { ...fw, is_active: Boolean(fw.is_active) };
+}
+
+function getFirmwareByFilename(filename) {
+  const fw = db.prepare('SELECT * FROM firmware WHERE filename = ?').get(filename);
   if (!fw) return null;
   return { ...fw, is_active: Boolean(fw.is_active) };
 }
@@ -383,13 +464,26 @@ function createOtaTask(deviceId, firmwareId) {
   return stmt.run(deviceId, firmwareId);
 }
 
+const OTA_STATUSES = ['pending', 'downloading', 'success', 'failed'];
+
+function isValidOtaStatus(status) {
+  return OTA_STATUSES.includes(status);
+}
+
 function updateOtaTask(id, status, errorMessage = null) {
+  if (!isValidOtaStatus(status)) {
+    throw new Error(`Estado OTA inválido: ${status}`);
+  }
+
+  const otaId = Number.parseInt(id, 10);
+  if (!Number.isInteger(otaId)) return { changes: 0 };
+
   const stmt = db.prepare(`
     UPDATE ota_history
     SET status = ?, error_message = ?, completed_at = CASE WHEN ? IN ('success', 'failed') THEN CURRENT_TIMESTAMP ELSE NULL END
     WHERE id = ?
   `);
-  return stmt.run(status, errorMessage, status, id);
+  return stmt.run(status, errorMessage == null ? null : String(errorMessage), status, otaId);
 }
 
 function getPendingOtaTasks(deviceId) {
@@ -428,10 +522,6 @@ function getUltrasonicConfigs(deviceId) {
   }));
 }
 
-function getUltrasonicConfigById(id) {
-  return db.prepare('SELECT * FROM ultrasonic_configs WHERE id = ?').get(id);
-}
-
 function setUltrasonicConfig(deviceId, config) {
   const stmt = db.prepare(`
     INSERT INTO ultrasonic_configs (
@@ -461,7 +551,9 @@ function setUltrasonicConfig(deviceId, config) {
     config.read_interval || 100,
     config.detection_enabled === false ? 0 : 1,
     config.trigger_distance || 50,
-    config.trigger_gpio_pin || null,
+    config.trigger_gpio_pin === undefined || config.trigger_gpio_pin === null || config.trigger_gpio_pin === ''
+      ? null
+      : Number(config.trigger_gpio_pin),   // el GPIO 0 es válido: no usar '||'
     config.trigger_gpio_value !== undefined ? config.trigger_gpio_value : 1,
     config.trigger_duration || 1000,
     config.active === false ? 0 : 1
@@ -512,7 +604,8 @@ function setSetting(key, value) {
 }
 
 function getAllSettings() {
-  return db.prepare('SELECT key, value FROM system_settings').all();
+  // Las claves con prefijo '_' son internas (p. ej. _jwt_secret) y no se exponen
+  return db.prepare("SELECT key, value FROM system_settings WHERE substr(key, 1, 1) <> '_'").all();
 }
 
 module.exports = {
@@ -523,6 +616,7 @@ module.exports = {
   getDeviceByMac,
   getDeviceById,
   createDevice,
+  getOrCreateDevice,
   updateDevice,
   updateDeviceStatus,
   deleteDevice,
@@ -541,10 +635,12 @@ module.exports = {
   // Sensor Data
   saveSensorData,
   getSensorData,
+  countSensorData,
   cleanOldSensorData,
   // Firmware
   getFirmwareList,
   getFirmwareById,
+  getFirmwareByFilename,
   getActiveFirmware,
   addFirmware,
   setActiveFirmware,
@@ -552,13 +648,13 @@ module.exports = {
   // OTA
   createOtaTask,
   updateOtaTask,
+  isValidOtaStatus,
   getPendingOtaTasks,
   // Users
   getUserByUsername,
   createUser,
   // Ultrasonic
   getUltrasonicConfigs,
-  getUltrasonicConfigById,
   setUltrasonicConfig,
   deleteUltrasonicConfig,
   // Pending Commands

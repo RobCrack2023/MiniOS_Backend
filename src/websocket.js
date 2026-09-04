@@ -1,4 +1,5 @@
 const db = require('./db/database');
+const { checkDeviceToken, extractDeviceToken } = require('./config');
 
 // Almacenar conexiones activas
 const connections = {
@@ -13,10 +14,43 @@ const disconnectTimers = new Map();
 // Tiempo de gracia antes de marcar offline (2 minutos)
 const OFFLINE_GRACE_PERIOD = 2 * 60 * 1000; // 2 minutos en milisegundos
 
+/**
+ * Valida el ticket del dashboard. Devuelve el payload del usuario o null.
+ * Solo acepta tokens con scope 'ws' (los emite POST /api/auth/ws-ticket),
+ * nunca el JWT de sesión completo.
+ */
+function verifyDashboardTicket(fastify, request) {
+  const token = request.query && request.query.ticket;
+  if (!token) return null;
+
+  try {
+    const payload = fastify.jwt.verify(token);
+    return payload && payload.scope === 'ws' ? payload : null;
+  } catch (err) {
+    return null;
+  }
+}
+
 function setupWebSocket(fastify) {
 
-  // Endpoint para dispositivos ESP32
-  fastify.get('/ws/device', { websocket: true }, (connection, req) => {
+  // Endpoint para dispositivos ESP32.
+  // Si DEVICE_TOKEN está definido, el firmware debe enviarlo como ?token=... o
+  // en la cabecera x-device-token. Sin él, cualquiera puede suplantar una MAC.
+  fastify.get('/ws/device', {
+    websocket: true,
+    preValidation: async (request, reply) => {
+      if (!checkDeviceToken(extractDeviceToken(request))) {
+        console.warn(`🚫 Conexión de dispositivo rechazada (token inválido) desde ${request.ip}`);
+        return reply.code(401).send({ error: 'Token de dispositivo inválido' });
+      }
+    }
+  }, (connection, req) => {
+    // Defensa en profundidad: si el hook no llegara a ejecutarse, cerramos aquí
+    if (!checkDeviceToken(extractDeviceToken(req))) {
+      connection.socket.close(1008, 'Token de dispositivo invalido');
+      return;
+    }
+
     console.log('🔌 Nueva conexión de dispositivo');
 
     let deviceMac = null;
@@ -34,6 +68,14 @@ function setupWebSocket(fastify) {
 
     connection.socket.on('close', () => {
       if (deviceMac) {
+        // Un dispositivo que despierta de deep sleep suele registrar el socket nuevo
+        // ANTES de que llegue el close del viejo. Si borrásemos sin comprobar,
+        // dejaríamos fuera del mapa a una conexión viva y la marcaríamos offline.
+        if (connections.devices.get(deviceMac) !== connection.socket) {
+          console.log(`↩️  Cierre de una conexión antigua de ${deviceMac} (ya reconectado)`);
+          return;
+        }
+
         connections.devices.delete(deviceMac);
 
         // Iniciar timer de gracia para deep sleep (2 minutos)
@@ -64,9 +106,26 @@ function setupWebSocket(fastify) {
     });
   });
 
-  // Endpoint para dashboard web
-  fastify.get('/ws/dashboard', { websocket: true }, (connection, req) => {
-    console.log('🖥️ Nueva conexión de dashboard');
+  // Endpoint para dashboard web.
+  // Requiere un ticket de corta duración emitido por POST /api/auth/ws-ticket:
+  // así el JWT de 24 h no viaja en la URL (ni acaba en los logs de nginx).
+  fastify.get('/ws/dashboard', {
+    websocket: true,
+    preValidation: async (request, reply) => {
+      if (!verifyDashboardTicket(fastify, request)) {
+        console.warn(`🚫 Conexión de dashboard rechazada (ticket inválido) desde ${request.ip}`);
+        return reply.code(401).send({ error: 'No autorizado' });
+      }
+    }
+  }, (connection, req) => {
+    // Defensa en profundidad: si el hook no llegara a ejecutarse, cerramos aquí
+    const user = verifyDashboardTicket(fastify, req);
+    if (!user) {
+      connection.socket.close(1008, 'No autorizado');
+      return;
+    }
+
+    console.log(`🖥️ Nueva conexión de dashboard (${user.username})`);
 
     connections.dashboards.add(connection.socket);
 
@@ -138,12 +197,16 @@ function handleDeviceRegister(socket, data, setMac) {
     console.log(`✅ Dispositivo reconectado (cancelado timeout): ${mac_address}`);
   }
 
-  // Buscar o crear dispositivo
+  // Buscar o crear dispositivo (atómico: dos sockets con la misma MAC pueden
+  // llegar a la vez y el UNIQUE de mac_address haría fallar el segundo INSERT)
   let device = db.getDeviceByMac(mac_address);
+  let isNew = false;
 
   if (!device) {
-    device = db.createDevice(mac_address);
-    console.log(`✨ Nuevo dispositivo registrado: ${mac_address}`);
+    const created = db.getOrCreateDevice(mac_address);
+    device = created.device;
+    isNew = created.created;
+    if (isNew) console.log(`✨ Nuevo dispositivo registrado: ${mac_address}`);
   }
 
   // Actualizar estado (incluye modelo de placa si viene del firmware)
@@ -159,7 +222,12 @@ function handleDeviceRegister(socket, data, setMac) {
 
   db.updateDevice(device.id, updateData);
 
-  // Guardar conexión
+  // Guardar conexión, cerrando cualquier socket anterior de la misma MAC
+  const previous = connections.devices.get(mac_address);
+  if (previous && previous !== socket) {
+    try { previous.close(1000, 'Reemplazado por una conexion nueva'); } catch (err) { /* ya cerrado */ }
+  }
+
   connections.devices.set(mac_address, socket);
   setMac(mac_address);
 
@@ -336,14 +404,7 @@ function handleOtaStatus(socket, data) {
 
   db.updateOtaTask(ota_id, status, error);
 
-  if (status === 'success') {
-    const device = db.getDeviceByMac(mac_address);
-    if (device) {
-      // Actualizar versión del firmware
-      const task = db.getPendingOtaTasks(device.id);
-      // La versión se actualizará cuando el dispositivo se reconecte
-    }
-  }
+  // La versión del firmware se actualiza cuando el dispositivo se reconecta y se registra
 
   broadcastToDashboards({
     type: 'ota_status',
@@ -412,15 +473,6 @@ function broadcastToDashboards(message) {
   });
 }
 
-function broadcastToDevices(message) {
-  const messageStr = JSON.stringify(message);
-  connections.devices.forEach(socket => {
-    if (socket.readyState === 1) {
-      socket.send(messageStr);
-    }
-  });
-}
-
 function sendDeviceHistory(socket, deviceId) {
   const data = {
     temperature: db.getSensorData(deviceId, 'temperature', 50),
@@ -443,6 +495,5 @@ module.exports = {
   sendCommandToDevice,
   sendOrQueueCommand,
   broadcastToDashboards,
-  broadcastToDevices,
   connections
 };

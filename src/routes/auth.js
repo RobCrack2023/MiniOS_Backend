@@ -1,27 +1,50 @@
 const bcrypt = require('bcrypt');
 const db = require('../db/database');
+const rateLimit = require('../rateLimit');
 
 async function authRoutes(fastify, options) {
 
   // Login
-  fastify.post('/login', async (request, reply) => {
+  fastify.post('/login', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['username', 'password'],
+        properties: {
+          username: { type: 'string', minLength: 1, maxLength: 64 },
+          password: { type: 'string', minLength: 1, maxLength: 256 }
+        }
+      }
+    }
+  }, async (request, reply) => {
     const { username, password } = request.body;
 
-    if (!username || !password) {
-      return reply.status(400).send({ error: 'Usuario y contraseña requeridos' });
+    // Freno de fuerza bruta: por IP y por usuario
+    const keys = rateLimit.loginKeys(request.ip, username);
+    const wait = rateLimit.retryAfter(keys);
+
+    if (wait > 0) {
+      return reply
+        .status(429)
+        .header('Retry-After', String(wait))
+        .send({ error: `Demasiados intentos fallidos. Reintenta en ${wait} segundos.` });
     }
 
     const user = db.getUserByUsername(username);
 
     if (!user) {
+      rateLimit.registerFailure(keys);
       return reply.status(401).send({ error: 'Credenciales inválidas' });
     }
 
     const validPassword = await bcrypt.compare(password, user.password);
 
     if (!validPassword) {
+      rateLimit.registerFailure(keys);
       return reply.status(401).send({ error: 'Credenciales inválidas' });
     }
+
+    rateLimit.registerSuccess(keys);
 
     const token = fastify.jwt.sign({
       id: user.id,
@@ -45,6 +68,21 @@ async function authRoutes(fastify, options) {
       valid: true,
       user: request.user
     };
+  });
+
+  // Ticket de corta duración para abrir el WebSocket del dashboard.
+  // El navegador no puede enviar cabeceras al abrir un WebSocket, así que en vez
+  // de poner el JWT de 24 h en la URL se emite este ticket de un minuto.
+  fastify.post('/ws-ticket', {
+    preHandler: [fastify.authenticate]
+  }, async (request, reply) => {
+    const ticket = fastify.jwt.sign({
+      id: request.user.id,
+      username: request.user.username,
+      scope: 'ws'
+    }, { expiresIn: '60s' });
+
+    return { ticket };
   });
 
   // Cambiar contraseña

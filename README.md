@@ -34,16 +34,61 @@ npm start     # producción
 ```
 
 Abrir en navegador: `http://localhost:3001`
-Usuario por defecto: **admin / admin123** — cambiar inmediatamente en Configuración.
+
+En el **primer arranque** se crea el usuario `admin` con una **contraseña aleatoria
+que se imprime una sola vez en la consola** (o en `pm2 logs minios`). Anotarla en ese
+momento; se puede cambiar después en Configuración → Cambiar contraseña.
+
+Si una instalación antigua todavía usa `admin123`, el servidor lo avisa en cada arranque.
+
+El login está limitado a 10 intentos fallidos por usuario y 30 por IP en ventanas de
+15 minutos; al superarlos responde `429` con `Retry-After`.
 
 ## Variables de Entorno
 
-Crear un archivo `.env` en la raíz del proyecto (opcional, hay valores por defecto):
+Copiar `.env.example` a `.env` en la raíz del proyecto. El servidor lo carga solo
+al arrancar (sin dotenv ni `--env-file`).
 
 ```bash
 PORT=3001
-JWT_SECRET=cambia-esto-por-una-clave-segura
+
+# Generar con: node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+JWT_SECRET=
+
+# Token compartido que deben presentar los ESP32 (ver "Autenticación de dispositivos")
+DEVICE_TOKEN=
 ```
+
+| Variable | Si se deja vacía |
+|----------|------------------|
+| `PORT` | 3001 |
+| `JWT_SECRET` | Se genera uno aleatorio y se guarda en la base de datos. Nunca se usa un valor por defecto conocido. |
+| `DEVICE_TOKEN` | Los dispositivos se conectan sin autenticación (compatible con el firmware antiguo). El servidor lo avisa al arrancar. |
+| `ALLOWED_ORIGINS` | No se emiten cabeceras CORS. El dashboard va en el mismo origen, así que no las necesita. Usar una lista separada por comas para permitir clientes externos. |
+| `DATA_RETENTION_DAYS` | No se borra nada (la tabla `sensor_data` crece sin límite). Poner p. ej. `30` activa la purga diaria del historial más antiguo. **El borrado es irreversible.** |
+| `MAX_FIRMWARE_MB` | 8 MB. Debe ser menor o igual que el `client_max_body_size` de nginx. |
+
+### Autenticación de dispositivos
+
+Con `DEVICE_TOKEN` definido, el firmware debe enviarlo en la URL del WebSocket y en
+las peticiones OTA:
+
+```cpp
+// Firmware del cliente
+const char* DEVICE_TOKEN = "...el mismo valor que en el .env...";
+
+// WebSocket
+webSocket.begin(BACKEND_HOST, BACKEND_PORT,
+                String("/ws/device?token=") + DEVICE_TOKEN);
+
+// Descarga OTA
+http.begin(String("http://") + BACKEND_HOST + "/api/ota/download/" + filename +
+           "?token=" + DEVICE_TOKEN);
+```
+
+También se acepta la cabecera `x-device-token`. Mientras el firmware desplegado no
+envíe el token, dejar `DEVICE_TOKEN` vacío: en cuanto se defina, los dispositivos
+antiguos dejan de conectarse.
 
 > **Nota sobre Timezone**: Los timestamps se almacenan siempre en **UTC** en la base de datos.
 > La conversión a zona horaria local ocurre **en el frontend**, usando la zona configurada en
@@ -105,10 +150,12 @@ cd MiniOS_Backend
 npm install --production
 
 # Crear archivo de variables de entorno
-cat > .env << 'EOF'
-PORT=3001
-JWT_SECRET=genera-una-clave-larga-y-aleatoria-aqui
-EOF
+cp .env.example .env
+nano .env   # rellenar JWT_SECRET (y DEVICE_TOKEN si el firmware ya lo soporta)
+
+# Generar los valores:
+node -e "console.log('JWT_SECRET=' + require('crypto').randomBytes(48).toString('hex'))"
+node -e "console.log('DEVICE_TOKEN=' + require('crypto').randomBytes(24).toString('hex'))"
 
 chmod 600 .env
 ```
@@ -294,6 +341,7 @@ Authorization: Bearer <token>
 | GET | `/api/auth/verify` | Verificar token JWT |
 | POST | `/api/auth/setup` | Crear primer usuario (solo si no hay usuarios) |
 | POST | `/api/auth/change-password` | Cambiar contraseña |
+| POST | `/api/auth/ws-ticket` | Ticket de 60 s para abrir `/ws/dashboard` |
 
 ### Tiempo (sin auth)
 | Método | Endpoint | Descripción |
@@ -361,15 +409,45 @@ Authorization: Bearer <token>
 | POST | `/api/ota/firmware/:id/activate` | Marcar firmware como activo |
 | DELETE | `/api/ota/firmware/:id` | Eliminar firmware |
 | POST | `/api/ota/update/:deviceId` | Enviar OTA a un dispositivo |
-| POST | `/api/ota/update-all` | Enviar OTA a todos los dispositivos |
+| POST | `/api/ota/update-all` | Enviar OTA a todos los dispositivos (encola los dormidos) |
+
+### Notas sobre `GET /api/devices/:id/data`
+
+Devuelve `{ data, total, truncated }`. `limit` es obligatorio en la práctica
+(por defecto 100, máximo 50 000) **también cuando se filtra por fechas**: antes un
+rango de fechas devolvía 10 000 filas en silencio. Si `truncated` es `true`, hay más
+lecturas en el rango de las que se devolvieron.
+
+Todos los endpoints validan parámetros, query y cuerpo con JSON Schema: un `pin`
+fuera de rango, un `mode` desconocido o un `limit` no numérico responden `400` en vez
+de llegar al ESP32 o a SQLite.
+
+---
+
+## Subida de firmware
+
+`POST /api/ota/firmware/upload` (multipart) valida:
+
+- la **versión** contra `^[A-Za-z0-9._-]{1,32}$` (acaba dentro del nombre del archivo);
+- que el binario empiece por el **magic byte `0xE9`** de los binarios ESP32;
+- que no venga **truncado** por superar `MAX_FIRMWARE_MB` (responde `413`).
+
+Un `.bin` truncado guardado como válido dejaría inservibles los dispositivos que lo
+recibieran por OTA.
 
 ---
 
 ## WebSocket Protocol
 
 ### Endpoints
-- `/ws/device` — conexión para dispositivos ESP32
-- `/ws/dashboard` — conexión para el dashboard web
+- `/ws/device` — conexión para dispositivos ESP32.
+  Requiere `?token=<DEVICE_TOKEN>` (o la cabecera `x-device-token`) si esa variable
+  está configurada. Sin ella, se acepta cualquier conexión.
+- `/ws/dashboard` — conexión para el dashboard web.
+  Requiere `?ticket=<ticket>`, un JWT de 60 segundos con `scope: "ws"` que se obtiene
+  con `POST /api/auth/ws-ticket`. El JWT de sesión de 24 h **no** sirve aquí, para que
+  no acabe registrado en los logs del proxy. Una conexión rechazada se cierra con el
+  código 1008.
 
 ---
 

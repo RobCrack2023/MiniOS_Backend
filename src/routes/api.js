@@ -1,6 +1,110 @@
 const db = require('../db/database');
 const { sendCommandToDevice, sendOrQueueCommand, broadcastToDashboards } = require('../websocket');
 
+// ============================================
+// ESQUEMAS DE VALIDACION
+// Fastify valida y convierte los tipos antes del handler; sin esto un ?limit=abc
+// llegaba como NaN a SQLite (500) y cualquier pin o modo se reenviaba tal cual
+// al ESP32.
+// ============================================
+
+const idParam = {
+  type: 'object',
+  required: ['id'],
+  properties: { id: { type: 'integer', minimum: 1 } }
+};
+
+const idPinParams = {
+  type: 'object',
+  required: ['id', 'pin'],
+  properties: {
+    id: { type: 'integer', minimum: 1 },
+    pin: { type: 'integer', minimum: 0, maximum: 48 }
+  }
+};
+
+const gpioBody = {
+  type: 'object',
+  required: ['pin', 'mode'],
+  properties: {
+    pin: { type: 'integer', minimum: 0, maximum: 48 },
+    mode: { type: 'string', enum: ['OUTPUT', 'INPUT', 'INPUT_PULLUP', 'PWM'] },
+    name: { type: 'string', maxLength: 64 },
+    value: { type: 'integer', minimum: 0, maximum: 4095 },
+    pwm_frequency: { type: 'integer', minimum: 1, maximum: 40000000 },
+    loop_enabled: { type: 'boolean' },
+    loop_interval: { type: 'integer', minimum: 50, maximum: 3600000 },
+    formula_enabled: { type: 'boolean' },
+    formula_type: { type: ['string', 'null'], maxLength: 32 },
+    formula_min: { type: 'number' },
+    formula_max: { type: 'number' },
+    unit: { type: 'string', maxLength: 16 },
+    active: { type: 'boolean' }
+  }
+};
+
+const dhtBody = {
+  type: 'object',
+  required: ['pin'],
+  properties: {
+    pin: { type: 'integer', minimum: 0, maximum: 48 },
+    name: { type: 'string', maxLength: 64 },
+    sensor_type: { type: 'string', enum: ['DHT11', 'DHT22'] },
+    read_interval: { type: 'integer', minimum: 1000, maximum: 3600000 },
+    active: { type: 'boolean' }
+  }
+};
+
+const i2cBody = {
+  type: 'object',
+  required: ['sensor_type', 'i2c_address'],
+  properties: {
+    sensor_type: { type: 'string', maxLength: 32 },
+    i2c_address: { type: 'integer', minimum: 1, maximum: 127 },
+    name: { type: 'string', maxLength: 64 },
+    read_interval: { type: 'integer', minimum: 1000, maximum: 3600000 },
+    active: { type: 'boolean' }
+  }
+};
+
+const ultrasonicBody = {
+  type: 'object',
+  required: ['trig_pin', 'echo_pin'],
+  properties: {
+    trig_pin: { type: 'integer', minimum: 0, maximum: 48 },
+    echo_pin: { type: 'integer', minimum: 0, maximum: 48 },
+    name: { type: 'string', maxLength: 64 },
+    max_distance: { type: 'integer', minimum: 1, maximum: 1000 },
+    read_interval: { type: 'integer', minimum: 50, maximum: 3600000 },
+    detection_enabled: { type: 'boolean' },
+    trigger_distance: { type: 'integer', minimum: 1, maximum: 1000 },
+    trigger_gpio_pin: { type: ['integer', 'null'], minimum: 0, maximum: 48 },
+    trigger_gpio_value: { type: 'integer', minimum: 0, maximum: 1 },
+    trigger_duration: { type: 'integer', minimum: 0, maximum: 3600000 },
+    active: { type: 'boolean' }
+  }
+};
+
+const dataQuery = {
+  type: 'object',
+  properties: {
+    type: { type: 'string', maxLength: 32 },
+    limit: { type: 'integer', minimum: 1, maximum: 50000, default: 100 },
+    from: { type: 'string', maxLength: 40 },
+    to: { type: 'string', maxLength: 40 }
+  }
+};
+
+const exportQuery = {
+  type: 'object',
+  properties: {
+    type: { type: 'string', maxLength: 32 },
+    limit: { type: 'integer', minimum: 1, maximum: 50000, default: 10000 },
+    from: { type: 'string', maxLength: 40 },
+    to: { type: 'string', maxLength: 40 }
+  }
+};
+
 async function apiRoutes(fastify, options) {
 
   // Middleware de autenticación para todas las rutas
@@ -17,7 +121,9 @@ async function apiRoutes(fastify, options) {
   });
 
   // Obtener dispositivo por ID
-  fastify.get('/devices/:id', async (request, reply) => {
+  fastify.get('/devices/:id', {
+    schema: { params: idParam }
+  }, async (request, reply) => {
     const device = db.getDeviceById(request.params.id);
     if (!device) {
       return reply.status(404).send({ error: 'Dispositivo no encontrado' });
@@ -39,7 +145,21 @@ async function apiRoutes(fastify, options) {
   });
 
   // Actualizar dispositivo
-  fastify.put('/devices/:id', async (request, reply) => {
+  fastify.put('/devices/:id', {
+    schema: {
+      params: idParam,
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', maxLength: 64 },
+          description: { type: 'string', maxLength: 256 },
+          sleep_interval: { type: 'integer', minimum: 0, maximum: 86400000 },
+          board_model: { type: 'string', maxLength: 32 },
+          board_family: { type: 'string', maxLength: 32 }
+        }
+      }
+    }
+  }, async (request, reply) => {
     const { id } = request.params;
     const device = db.getDeviceById(id);
 
@@ -61,7 +181,9 @@ async function apiRoutes(fastify, options) {
   });
 
   // Eliminar dispositivo
-  fastify.delete('/devices/:id', async (request, reply) => {
+  fastify.delete('/devices/:id', {
+    schema: { params: idParam }
+  }, async (request, reply) => {
     const { id } = request.params;
     db.deleteDevice(id);
     return { success: true };
@@ -72,13 +194,17 @@ async function apiRoutes(fastify, options) {
   // ============================================
 
   // Obtener configuración GPIO de un dispositivo
-  fastify.get('/devices/:id/gpio', async (request, reply) => {
+  fastify.get('/devices/:id/gpio', {
+    schema: { params: idParam }
+  }, async (request, reply) => {
     const configs = db.getGpioConfigs(request.params.id);
     return { gpio: configs };
   });
 
   // Configurar GPIO
-  fastify.post('/devices/:id/gpio', async (request, reply) => {
+  fastify.post('/devices/:id/gpio', {
+    schema: { params: idParam, body: gpioBody }
+  }, async (request, reply) => {
     const { id } = request.params;
     const device = db.getDeviceById(id);
 
@@ -99,7 +225,9 @@ async function apiRoutes(fastify, options) {
   });
 
   // Eliminar configuración GPIO
-  fastify.delete('/devices/:id/gpio/:pin', async (request, reply) => {
+  fastify.delete('/devices/:id/gpio/:pin', {
+    schema: { params: idPinParams }
+  }, async (request, reply) => {
     const { id, pin } = request.params;
     const device = db.getDeviceById(id);
 
@@ -119,7 +247,16 @@ async function apiRoutes(fastify, options) {
   });
 
   // Comando directo a GPIO (set value)
-  fastify.post('/devices/:id/gpio/:pin/set', async (request, reply) => {
+  fastify.post('/devices/:id/gpio/:pin/set', {
+    schema: {
+      params: idPinParams,
+      body: {
+        type: 'object',
+        required: ['value'],
+        properties: { value: { type: 'integer', minimum: 0, maximum: 4095 } }
+      }
+    }
+  }, async (request, reply) => {
     const { id, pin } = request.params;
     const { value } = request.body;
     const device = db.getDeviceById(id);
@@ -139,13 +276,17 @@ async function apiRoutes(fastify, options) {
   // ============================================
 
   // Obtener configuración DHT
-  fastify.get('/devices/:id/dht', async (request, reply) => {
+  fastify.get('/devices/:id/dht', {
+    schema: { params: idParam }
+  }, async (request, reply) => {
     const configs = db.getDhtConfigs(request.params.id);
     return { dht: configs };
   });
 
   // Configurar DHT
-  fastify.post('/devices/:id/dht', async (request, reply) => {
+  fastify.post('/devices/:id/dht', {
+    schema: { params: idParam, body: dhtBody }
+  }, async (request, reply) => {
     const { id } = request.params;
     const device = db.getDeviceById(id);
 
@@ -166,7 +307,9 @@ async function apiRoutes(fastify, options) {
   });
 
   // Eliminar sensor DHT
-  fastify.delete('/devices/:id/dht/:pin', async (request, reply) => {
+  fastify.delete('/devices/:id/dht/:pin', {
+    schema: { params: idPinParams }
+  }, async (request, reply) => {
     const { id, pin } = request.params;
     const device = db.getDeviceById(id);
 
@@ -189,13 +332,17 @@ async function apiRoutes(fastify, options) {
   // ============================================
 
   // Obtener configuración de sensores I2C
-  fastify.get('/devices/:id/i2c', async (request, reply) => {
+  fastify.get('/devices/:id/i2c', {
+    schema: { params: idParam }
+  }, async (request, reply) => {
     const configs = db.getI2cConfigs(request.params.id);
     return { i2c: configs };
   });
 
   // Configurar sensor I2C
-  fastify.post('/devices/:id/i2c', async (request, reply) => {
+  fastify.post('/devices/:id/i2c', {
+    schema: { params: idParam, body: i2cBody }
+  }, async (request, reply) => {
     const { id } = request.params;
     const device = db.getDeviceById(id);
 
@@ -216,7 +363,18 @@ async function apiRoutes(fastify, options) {
   });
 
   // Eliminar sensor I2C
-  fastify.delete('/devices/:id/i2c/:address', async (request, reply) => {
+  fastify.delete('/devices/:id/i2c/:address', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id', 'address'],
+        properties: {
+          id: { type: 'integer', minimum: 1 },
+          address: { type: 'integer', minimum: 1, maximum: 127 }
+        }
+      }
+    }
+  }, async (request, reply) => {
     const { id, address } = request.params;
     const device = db.getDeviceById(id);
 
@@ -235,7 +393,9 @@ async function apiRoutes(fastify, options) {
   });
 
   // Solicitar escaneo del bus I2C
-  fastify.post('/devices/:id/i2c/scan', async (request, reply) => {
+  fastify.post('/devices/:id/i2c/scan', {
+    schema: { params: idParam }
+  }, async (request, reply) => {
     const { id } = request.params;
     const device = db.getDeviceById(id);
 
@@ -260,13 +420,17 @@ async function apiRoutes(fastify, options) {
   // ============================================
 
   // Obtener configuración de sensores ultrasónicos
-  fastify.get('/devices/:id/ultrasonic', async (request, reply) => {
+  fastify.get('/devices/:id/ultrasonic', {
+    schema: { params: idParam }
+  }, async (request, reply) => {
     const configs = db.getUltrasonicConfigs(request.params.id);
     return { ultrasonic: configs };
   });
 
   // Configurar sensor ultrasónico
-  fastify.post('/devices/:id/ultrasonic', async (request, reply) => {
+  fastify.post('/devices/:id/ultrasonic', {
+    schema: { params: idParam, body: ultrasonicBody }
+  }, async (request, reply) => {
     const { id } = request.params;
     const device = db.getDeviceById(id);
 
@@ -292,7 +456,18 @@ async function apiRoutes(fastify, options) {
   });
 
   // Eliminar sensor ultrasónico
-  fastify.delete('/devices/:id/ultrasonic/:ultrasonicId', async (request, reply) => {
+  fastify.delete('/devices/:id/ultrasonic/:ultrasonicId', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['id', 'ultrasonicId'],
+        properties: {
+          id: { type: 'integer', minimum: 1 },
+          ultrasonicId: { type: 'integer', minimum: 1 }
+        }
+      }
+    }
+  }, async (request, reply) => {
     const { id, ultrasonicId } = request.params;
     const device = db.getDeviceById(id);
 
@@ -317,22 +492,37 @@ async function apiRoutes(fastify, options) {
   // ============================================
 
   // Obtener datos históricos
-  fastify.get('/devices/:id/data', async (request, reply) => {
+  fastify.get('/devices/:id/data', {
+    schema: { params: idParam, querystring: dataQuery }
+  }, async (request, reply) => {
     const { id } = request.params;
-    const { type, limit = 100, from, to } = request.query;
-    const data = db.getSensorData(id, type || null, parseInt(limit), from || null, to || null);
-    return { data };
+    const { type, limit, from, to } = request.query;
+
+    const data = db.getSensorData(id, type || null, limit, from || null, to || null);
+    const total = db.countSensorData(id, type || null, from || null, to || null);
+
+    // truncated avisa de que hay más lecturas de las devueltas: antes una consulta
+    // con rango de fechas recortaba a 10.000 filas sin decirlo
+    return { data, total, truncated: total > data.length };
   });
 
   // Exportar datos históricos como CSV
-  fastify.get('/devices/:id/data/export', async (request, reply) => {
+  fastify.get('/devices/:id/data/export', {
+    schema: { params: idParam, querystring: exportQuery }
+  }, async (request, reply) => {
     const { id } = request.params;
-    const { type, limit = 10000, from, to } = request.query;
-    const data = db.getSensorData(id, type || null, parseInt(limit), from || null, to || null);
+    const { type, limit, from, to } = request.query;
+    const data = db.getSensorData(id, type || null, limit, from || null, to || null);
+
+    // Prefijo defensivo contra la inyección de fórmulas al abrir el CSV en Excel
+    const csvCell = value => {
+      const text = value === null || value === undefined ? '' : String(value);
+      return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+    };
 
     const header = 'fecha,sensor,pin,valor\n';
     const rows = data.map(r =>
-      `${r.recorded_at},${r.sensor_type},${r.sensor_pin ?? ''},${r.value}`
+      [r.recorded_at, csvCell(r.sensor_type), r.sensor_pin ?? '', r.value].join(',')
     ).join('\n');
 
     const device = db.getDeviceById(id);
@@ -346,7 +536,9 @@ async function apiRoutes(fastify, options) {
   });
 
   // Obtener resumen de datos (última lectura de cada tipo)
-  fastify.get('/devices/:id/summary', async (request, reply) => {
+  fastify.get('/devices/:id/summary', {
+    schema: { params: idParam }
+  }, async (request, reply) => {
     const { id } = request.params;
 
     const temperature = db.getSensorData(id, 'temperature', 1)[0];
@@ -366,7 +558,9 @@ async function apiRoutes(fastify, options) {
   // ============================================
 
   // Reiniciar dispositivo
-  fastify.post('/devices/:id/reboot', async (request, reply) => {
+  fastify.post('/devices/:id/reboot', {
+    schema: { params: idParam }
+  }, async (request, reply) => {
     const device = db.getDeviceById(request.params.id);
 
     if (!device) {
@@ -408,7 +602,15 @@ async function apiRoutes(fastify, options) {
   });
 
   // Actualizar timezone
-  fastify.put('/settings/timezone', async (request, reply) => {
+  fastify.put('/settings/timezone', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['timezone'],
+        properties: { timezone: { type: 'string', minLength: 1, maxLength: 64 } }
+      }
+    }
+  }, async (request, reply) => {
     const { timezone } = request.body;
 
     if (!timezone) {

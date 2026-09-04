@@ -8,8 +8,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
     <link rel="stylesheet" href="/css/style.css">
-    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Versiones fijas + SRI: '3.x.x' y 'chart.js' sin versión dejaban que el CDN
+         sirviera código nuevo (o alterado) sin control en un panel que maneja hardware -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"
+            integrity="sha384-9Ax3MmS9AClxJyd5/zafcXXjxmwFhZCdsT6HJoJjarvCaAkJlk5QDzjLJm+Wdx5F"
+            crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
+            integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC"
+            crossorigin="anonymous"></script>
 </head>
 <body x-data="app()" x-init="init()">
 
@@ -847,6 +853,11 @@
                         <span x-show="historyRangeMode !== 'limit' && historyRecordCount !== null"
                               style="font-size: 0.8em; color: #666; background: #f0f0f0; border-radius: 10px; padding: 2px 10px;">
                             <span x-text="historyRecordCount"></span> registros
+                        </span>
+                        <span x-show="historyTruncated"
+                              title="Se muestran solo las lecturas mas recientes del rango"
+                              style="font-size: 0.8em; color: #8a6d3b; background: #fcf8e3; border-radius: 10px; padding: 2px 10px;">
+                            resultado recortado
                         </span>
                     </div>
 

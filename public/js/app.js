@@ -63,6 +63,11 @@ function app() {
         historyFrom: '',              // datetime-local string (hora local)
         historyTo: '',
         historyRecordCount: null,
+        historyTruncated: false,
+
+        // Techos al consultar por rango de fechas (el backend admite hasta 50.000)
+        HISTORY_RANGE_LIMIT: 10000,
+        EXPORT_RANGE_LIMIT: 50000,
         newFirmware: { version: '', description: '', file: null },
         passwordForm: { current: '', new: '' },
         timezoneForm: { timezone: 'America/Santiago' },
@@ -164,9 +169,22 @@ function app() {
         },
 
         // WebSocket
-        connectWebSocket() {
+        async connectWebSocket() {
+            // El WebSocket exige un ticket de un minuto; se pide uno nuevo en cada
+            // (re)conexión, así el JWT de sesión nunca viaja en la URL.
+            let ticket;
+            try {
+                const res = await this.api('/api/auth/ws-ticket', { method: 'POST', body: '{}' });
+                ticket = res.ticket;
+                if (!ticket) throw new Error('Sin ticket');
+            } catch (err) {
+                console.error('No se pudo obtener el ticket del WebSocket:', err);
+                setTimeout(() => this.connectWebSocket(), 5000);
+                return;
+            }
+
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/dashboard`;
+            const wsUrl = `${protocol}//${window.location.host}/ws/dashboard?ticket=${encodeURIComponent(ticket)}`;
 
             this.ws = new WebSocket(wsUrl);
 
@@ -179,7 +197,13 @@ function app() {
                 this.handleWebSocketMessage(data);
             };
 
-            this.ws.onclose = () => {
+            this.ws.onclose = (event) => {
+                // 1008 = el servidor rechazó el ticket: la sesión ya no sirve
+                if (event.code === 1008) {
+                    console.warn('WebSocket rechazado por el servidor, cerrando sesión');
+                    this.logout();
+                    return;
+                }
                 console.log('WebSocket desconectado, reconectando...');
                 setTimeout(() => this.connectWebSocket(), 3000);
             };
@@ -790,6 +814,7 @@ function app() {
             this.historyFrom = '';
             this.historyTo = '';
             this.historyRecordCount = null;
+            this.historyTruncated = false;
 
             if (this.historyChartInstance) {
                 this.historyChartInstance.destroy();
@@ -829,6 +854,9 @@ function app() {
                 if (this.historyFrom) params.set('from', new Date(this.historyFrom).toISOString());
                 if (this.historyTo)   params.set('to',   new Date(this.historyTo).toISOString());
             }
+            // Con rango de fechas hay que pedir el limite explicitamente: el backend
+            // ya no asume 10.000 filas en silencio
+            if (!params.has('limit')) params.set('limit', this.HISTORY_RANGE_LIMIT);
             return `/api/devices/${id}/data?${params.toString()}`;
         },
 
@@ -846,6 +874,7 @@ function app() {
                 if (this.historyFrom) params.set('from', new Date(this.historyFrom).toISOString());
                 if (this.historyTo)   params.set('to',   new Date(this.historyTo).toISOString());
             }
+            if (!params.has('limit')) params.set('limit', this.EXPORT_RANGE_LIMIT);
             return `/api/devices/${id}/data/export?${params.toString()}`;
         },
 
@@ -905,7 +934,8 @@ function app() {
             this.historyLoading = true;
             const data = await this.api(this.buildHistoryUrl());
             this.historyRawData = data.data || [];
-            this.historyRecordCount = this.historyRawData.length;
+            this.historyRecordCount = data.total ?? this.historyRawData.length;
+            this.historyTruncated = Boolean(data.truncated);
             this.historyLoading = false;
 
             const types = this.getHistoryTypes();
