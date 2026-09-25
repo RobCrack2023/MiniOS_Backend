@@ -6,7 +6,7 @@
 # Se puede volver a ejecutar: actualiza el código y conserva la base de datos,
 # el .env, las grabaciones y la configuración HTTPS que dejó certbot.
 #
-# Uso (como root):  bash setup-vps.sh <dominio> <email> [device_token] [rama]
+# Uso (como root):  bash setup-vps.sh <dominio> <email> [device_token] [rama] [puerto_ssh]
 #   device_token vacío = generar uno nuevo · "-" = sin token
 #
 set -euo pipefail
@@ -15,6 +15,7 @@ DOMAIN="${1:?Falta el dominio}"
 EMAIL="${2:?Falta el email para el certificado HTTPS}"
 DEVICE_TOKEN_IN="${3:-}"
 BRANCH="${4:-main}"
+SSH_PORT_IN="${5:-}"
 
 REPO_URL="https://github.com/RobCrack2023/MiniOS_Backend.git"
 APP_USER="minios"
@@ -85,16 +86,20 @@ pm2 --version
 # ------------------------------------------------------------------
 log "5/9 Firewall (SSH + HTTP/HTTPS)"
 # ------------------------------------------------------------------
-# Se abre el puerto en el que sshd escucha de verdad ANTES de activar ufw:
-# si SSH no va por el 22 y solo se abre OpenSSH, te quedas fuera de la VPS.
-ufw allow OpenSSH
-# sshd -T da los puertos configurados; ss, los que están escuchando ahora
-# (en Ubuntu 24.04 el socket lo abre systemd y ss no muestra "sshd")
-SSH_PORTS=$( { sshd -T 2>/dev/null | awk '$1 == "port" {print $2}';
-               ss -Htlnp 2>/dev/null | awk '/sshd/ {n = split($4, a, ":"); print a[n]}'; } | sort -u)
+# Se abren los puertos de SSH ANTES de activar ufw: si SSH no va por el 22 y
+# solo se abre OpenSSH, te quedas fuera de la VPS. Se suman el puerto que usa
+# el deploy, los de sshd -T (configurados) y los de ss (escuchando ahora; en
+# Ubuntu 24.04 el socket lo abre systemd y ss no muestra "sshd").
+SSH_PORTS=$( { [ -n "$SSH_PORT_IN" ] && echo "$SSH_PORT_IN";
+               sshd -T 2>/dev/null | awk '$1 == "port" {print $2}';
+               ss -Htlnp 2>/dev/null | awk '/sshd/ {n = split($4, a, ":"); print a[n]}'; } | grep -E '^[0-9]+$' | sort -u || true)
+if [ -z "$SSH_PORTS" ]; then
+  ufw allow OpenSSH
+fi
 for port in $SSH_PORTS; do
   ufw allow "$port/tcp"
 done
+echo "Puertos SSH abiertos: ${SSH_PORTS:-22 (OpenSSH)}"
 ufw allow 'Nginx Full'
 ufw --force enable
 ufw status

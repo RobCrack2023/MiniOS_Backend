@@ -30,6 +30,9 @@ set "VPS_HOST="
 set /p "VPS_HOST=IP de la VPS: "
 if "%VPS_HOST%"=="" (echo La IP es obligatoria. & pause & exit /b 1)
 
+set "SSH_PORT=22222"
+set /p "SSH_PORT=Puerto SSH [22222]: "
+
 set "VPS_USER=root"
 set /p "VPS_USER=Usuario SSH [root]: "
 
@@ -54,11 +57,15 @@ echo Si la VPS se reformateo con la misma IP, SSH rechazara la conexion porque
 echo su huella cambio. Borrar la huella antigua es seguro si TU reinstalaste la VPS.
 set "RESET_KEY=n"
 set /p "RESET_KEY=Borrar la huella antigua de %VPS_HOST% en known_hosts? (s/N): "
-if /i "%RESET_KEY%"=="s" ssh-keygen -R "%VPS_HOST%" >nul 2>&1
+rem Con un puerto distinto del 22, known_hosts guarda la huella como [host]:puerto
+if /i "%RESET_KEY%"=="s" (
+  ssh-keygen -R "%VPS_HOST%" >nul 2>&1
+  ssh-keygen -R "[%VPS_HOST%]:%SSH_PORT%" >nul 2>&1
+)
 
 echo.
 echo ---- 1/2 Subiendo el script (SSH te pedira la contrasena) ----
-ssh -o StrictHostKeyChecking=accept-new %VPS_USER%@%VPS_HOST% "cat > /tmp/minios-setup.sh" < setup-vps.sh
+ssh -p %SSH_PORT% -o StrictHostKeyChecking=accept-new %VPS_USER%@%VPS_HOST% "cat > /tmp/minios-setup.sh" < setup-vps.sh
 if errorlevel 1 (
   echo.
   echo No se pudo conectar o subir el script.
@@ -69,7 +76,7 @@ if errorlevel 1 (
 echo.
 echo ---- 2/2 Instalando (tarda 5-10 minutos; SSH pedira la contrasena otra vez) ----
 rem sed quita los CRLF por si git convirtio el .sh al formato de Windows
-ssh -t %VPS_USER%@%VPS_HOST% "sed -i 's/\r$//' /tmp/minios-setup.sh && if [ $(id -u) -eq 0 ]; then bash /tmp/minios-setup.sh '%DOMAIN%' '%EMAIL%' '%TOKEN%' '%BRANCH%'; else sudo bash /tmp/minios-setup.sh '%DOMAIN%' '%EMAIL%' '%TOKEN%' '%BRANCH%'; fi"
+ssh -t -p %SSH_PORT% %VPS_USER%@%VPS_HOST% "sed -i 's/\r$//' /tmp/minios-setup.sh && if [ $(id -u) -eq 0 ]; then bash /tmp/minios-setup.sh '%DOMAIN%' '%EMAIL%' '%TOKEN%' '%BRANCH%' '%SSH_PORT%'; else sudo bash /tmp/minios-setup.sh '%DOMAIN%' '%EMAIL%' '%TOKEN%' '%BRANCH%' '%SSH_PORT%'; fi"
 if errorlevel 1 (
   echo.
   echo La instalacion termino con errores. Revisa los mensajes de arriba.
