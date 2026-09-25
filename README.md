@@ -100,6 +100,19 @@ antiguos dejan de conectarse.
 
 ## Despliegue por Primera Vez en VPS Ubuntu
 
+### Instalación automática desde Windows
+
+`deploy/deploy-vps.bat` hace todos los pasos de esta sección por SSH: pide IP,
+dominio, email y token, sube `deploy/setup-vps.sh` a la VPS y lo ejecuta. Instala
+Node.js 22, PM2, nginx, firewall y HTTPS, y al terminar muestra la contraseña de
+admin y los comandos para configurar cada ESP32.
+
+Se puede volver a ejecutar para actualizar: hace backup de la base de datos y
+conserva el `.env`, las grabaciones y el HTTPS. Clona la rama indicada desde
+GitHub, así que los cambios tienen que estar subidos antes.
+
+Los pasos manuales equivalentes son estos:
+
 ### 1. Preparar el servidor
 
 ```bash

@@ -1,0 +1,4 @@
+# Los scripts de bash fallan con CRLF ($'\r': command not found) y cmd.exe
+# se confunde con etiquetas y saltos si el .bat solo tiene LF
+*.sh  text eol=lf
+*.bat text eol=crlf
