@@ -339,6 +339,7 @@
                     <div class="tab" :class="{ active: deviceTab === 'dht' }" @click="deviceTab = 'dht'">DHT</div>
                     <div class="tab" :class="{ active: deviceTab === 'i2c' }" @click="deviceTab = 'i2c'">I2C</div>
                     <div class="tab" :class="{ active: deviceTab === 'ultrasonic' }" @click="deviceTab = 'ultrasonic'">Ultrasonic</div>
+                    <div class="tab" :class="{ active: deviceTab === 'audio' }" @click="deviceTab = 'audio'">Audio</div>
                 </div>
 
                 <!-- Info Tab -->
@@ -620,6 +621,124 @@
                     <p x-show="deviceUltrasonics.length === 0" class="text-gray mt-20">
                         No hay sensores ultrasónicos configurados.
                     </p>
+                </div>
+
+                <!-- Audio Tab -->
+                <div class="tab-content" :class="{ active: deviceTab === 'audio' }">
+                    <template x-if="audioConfig">
+                    <div>
+                        <div class="ultrasonic-card">
+                            <div class="ultrasonic-header">
+                                <h4>Micrófono I2S (INMP441)</h4>
+                                <label>
+                                    <input type="checkbox" x-model="audioConfig.enabled">
+                                    Activado
+                                </label>
+                            </div>
+                            <div class="ultrasonic-config">
+                                <div class="config-section">
+                                    <h5>Pines</h5>
+                                    <div class="config-row">
+                                        <label>SCK:</label>
+                                        <input type="number" x-model.number="audioConfig.sck_pin" min="0" max="48" style="width: 70px;">
+                                        <label>WS:</label>
+                                        <input type="number" x-model.number="audioConfig.ws_pin" min="0" max="48" style="width: 70px;">
+                                        <label>SD:</label>
+                                        <input type="number" x-model.number="audioConfig.sd_pin" min="0" max="48" style="width: 70px;">
+                                    </div>
+                                    <div class="config-row">
+                                        <label>Canal:</label>
+                                        <select x-model.number="audioConfig.channel">
+                                            <option value="0">Izquierdo (L/R a GND)</option>
+                                            <option value="1">Derecho (L/R a 3V3)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="config-section">
+                                    <h5>Grabación</h5>
+                                    <div class="config-row">
+                                        <label>Duración (s):</label>
+                                        <input type="number" x-model.number="audioConfig.duration_sec" min="1" max="30" style="width: 70px;">
+                                        <label>Calidad:</label>
+                                        <select x-model.number="audioConfig.sample_rate">
+                                            <option value="16000">16 kHz (voz clara)</option>
+                                            <option value="8000">8 kHz (teléfono, mitad de tamaño)</option>
+                                        </select>
+                                    </div>
+                                    <div class="config-row">
+                                        <label>Grabar cada (s):</label>
+                                        <input type="number" x-model.number="audioConfig.capture_interval_sec" min="0" max="86400" style="width: 90px;">
+                                        <small class="text-gray">0 = en cada despertar</small>
+                                    </div>
+                                    <div class="config-row">
+                                        <label>Ganancia:</label>
+                                        <input type="range" x-model.number="audioConfig.gain" min="1" max="64">
+                                        <strong x-text="'x' + audioConfig.gain"></strong>
+                                        <small class="text-gray">súbela si se oye bajo, bájala si satura</small>
+                                    </div>
+                                </div>
+
+                                <div class="config-row" style="gap: 10px;">
+                                    <button class="btn btn-primary btn-sm" @click="saveAudioConfig()">Guardar</button>
+                                    <button class="btn btn-success btn-sm" @click="requestAudioCapture()"
+                                            :disabled="!audioConfig.id || !audioConfig.enabled">🎙️ Grabar ahora</button>
+                                </div>
+                                <small class="text-gray">
+                                    El dispositivo solo graba mientras está despierto. El intervalo real
+                                    es el mayor entre "grabar cada" y el deep sleep.
+                                </small>
+                            </div>
+                        </div>
+
+                        <p x-show="audioMessage" class="mt-20"><strong x-text="audioMessage"></strong></p>
+
+                        <h4 class="mt-20">
+                            Grabaciones
+                            <span class="text-gray" x-text="'(' + audioRecordings.length + (audioTotal > audioRecordings.length ? ' de ' + audioTotal : '') + ')'"></span>
+                        </h4>
+
+                        <table class="mt-20" x-show="audioRecordings.length > 0">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Duración</th>
+                                    <th>Nivel</th>
+                                    <th>Escuchar</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="rec in audioRecordings" :key="rec.id">
+                                    <tr>
+                                        <td x-text="formatDate(rec.recorded_at)"></td>
+                                        <td x-text="formatDuration(rec.duration_ms)"></td>
+                                        <td>
+                                            <span x-text="rec.rms_dbfs !== null ? rec.rms_dbfs + ' dBFS' : '—'"></span>
+                                            <small class="text-gray" x-show="rec.peak_dbfs >= -0.5"> (saturado)</small>
+                                        </td>
+                                        <td>
+                                            <template x-if="audioUrls[rec.id]">
+                                                <audio controls autoplay :src="audioUrls[rec.id]" style="height: 32px; max-width: 220px;"></audio>
+                                            </template>
+                                            <template x-if="!audioUrls[rec.id]">
+                                                <button class="btn btn-primary btn-sm" @click="playRecording(rec)">▶</button>
+                                            </template>
+                                        </td>
+                                        <td style="white-space: nowrap;">
+                                            <button class="btn btn-sm" @click="downloadRecording(rec)" title="Descargar WAV">⬇</button>
+                                            <button class="btn btn-danger btn-sm" @click="deleteRecording(rec)">X</button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+
+                        <p x-show="audioRecordings.length === 0" class="text-gray mt-20">
+                            Aún no hay grabaciones.
+                        </p>
+                    </div>
+                    </template>
                 </div>
             </div>
         </div>

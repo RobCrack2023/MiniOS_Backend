@@ -1,5 +1,6 @@
 const db = require('../db/database');
 const { sendCommandToDevice, sendOrQueueCommand, broadcastToDashboards } = require('../websocket');
+const { removeDeviceRecordingFiles } = require('../audioStore');
 
 // ============================================
 // ESQUEMAS DE VALIDACION
@@ -185,6 +186,8 @@ async function apiRoutes(fastify, options) {
     schema: { params: idParam }
   }, async (request, reply) => {
     const { id } = request.params;
+    // El CASCADE borra las filas de audio_recordings, pero no los WAV del disco
+    removeDeviceRecordingFiles(id);
     db.deleteDevice(id);
     return { success: true };
   });

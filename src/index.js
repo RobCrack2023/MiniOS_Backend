@@ -19,6 +19,8 @@ const { setupWebSocket } = require('./websocket');
 const apiRoutes = require('./routes/api');
 const authRoutes = require('./routes/auth');
 const otaRoutes = require('./routes/ota');
+const audioRoutes = require('./routes/audio');
+const { purgeOldRecordings } = require('./audioStore');
 
 const PORT = process.env.PORT || 3001;
 
@@ -99,6 +101,7 @@ async function start() {
     await fastify.register(authRoutes, { prefix: '/api/auth' });
     await fastify.register(apiRoutes, { prefix: '/api' });
     await fastify.register(otaRoutes, { prefix: '/api/ota' });
+    await fastify.register(audioRoutes, { prefix: '/api' });
 
     // Purga periódica del historial: sin esto la tabla sensor_data crecía sin límite
     // (un HC-SR04 leyendo cada 100 ms son ~860.000 filas al día por sensor).
@@ -111,6 +114,13 @@ async function start() {
           if (changes > 0) console.log(`🧹 Historial purgado: ${changes} lecturas de más de ${retentionDays} días`);
         } catch (err) {
           console.error('Error purgando el historial:', err.message);
+        }
+
+        try {
+          const removed = purgeOldRecordings(retentionDays);
+          if (removed > 0) console.log(`🧹 Audio purgado: ${removed} grabaciones de más de ${retentionDays} días`);
+        } catch (err) {
+          console.error('Error purgando grabaciones:', err.message);
         }
       };
 

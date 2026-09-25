@@ -566,6 +566,108 @@ function deleteUltrasonicConfig(deviceId, id) {
 
 
 // ============================================
+// AUDIO (micrófono I2S)
+// ============================================
+
+function normalizeAudioConfig(config) {
+  return config ? { ...config, enabled: Boolean(config.enabled) } : null;
+}
+
+function getAudioConfig(deviceId) {
+  return normalizeAudioConfig(
+    db.prepare('SELECT * FROM audio_configs WHERE device_id = ?').get(deviceId)
+  );
+}
+
+function setAudioConfig(deviceId, config) {
+  db.prepare(`
+    INSERT INTO audio_configs (
+      device_id, enabled, sck_pin, ws_pin, sd_pin, channel,
+      sample_rate, duration_sec, capture_interval_sec, gain
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(device_id) DO UPDATE SET
+      enabled = excluded.enabled,
+      sck_pin = excluded.sck_pin,
+      ws_pin = excluded.ws_pin,
+      sd_pin = excluded.sd_pin,
+      channel = excluded.channel,
+      sample_rate = excluded.sample_rate,
+      duration_sec = excluded.duration_sec,
+      capture_interval_sec = excluded.capture_interval_sec,
+      gain = excluded.gain
+  `).run(
+    deviceId,
+    config.enabled ? 1 : 0,
+    config.sck_pin,
+    config.ws_pin,
+    config.sd_pin,
+    config.channel ?? 0,
+    config.sample_rate ?? 16000,
+    config.duration_sec ?? 10,
+    config.capture_interval_sec ?? 300,   // 0 es válido (en cada ciclo): no usar '||'
+    config.gain ?? 16
+  );
+
+  return getAudioConfig(deviceId);
+}
+
+function normalizeRecording(rec) {
+  return rec ? { ...rec, recorded_at: toUtcIso(rec.recorded_at) } : null;
+}
+
+function addAudioRecording(deviceId, rec) {
+  const result = db.prepare(`
+    INSERT INTO audio_recordings (device_id, filename, sample_rate, duration_ms, size_bytes, rms_dbfs, peak_dbfs, recorded_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    deviceId, rec.filename, rec.sample_rate, rec.duration_ms, rec.size_bytes,
+    rec.rms_dbfs, rec.peak_dbfs, new Date().toISOString()
+  );
+
+  return getAudioRecordingById(result.lastInsertRowid);
+}
+
+function getAudioRecordings(deviceId, limit = 50) {
+  return db.prepare(
+    'SELECT * FROM audio_recordings WHERE device_id = ? ORDER BY recorded_at DESC, id DESC LIMIT ?'
+  ).all(deviceId, limit).map(normalizeRecording);
+}
+
+function countAudioRecordings(deviceId) {
+  return db.prepare('SELECT COUNT(*) as total FROM audio_recordings WHERE device_id = ?').get(deviceId).total;
+}
+
+function getAudioRecordingById(id) {
+  return normalizeRecording(db.prepare('SELECT * FROM audio_recordings WHERE id = ?').get(id));
+}
+
+function deleteAudioRecording(id) {
+  return db.prepare('DELETE FROM audio_recordings WHERE id = ?').run(id);
+}
+
+/** Grabaciones que sobran por encima de las `keep` más recientes de un dispositivo. */
+function getExcessAudioRecordings(deviceId, keep) {
+  return db.prepare(`
+    SELECT * FROM audio_recordings WHERE device_id = ?
+    ORDER BY recorded_at DESC, id DESC LIMIT -1 OFFSET ?
+  `).all(deviceId, keep);
+}
+
+/** Grabaciones más antiguas que `days` (mismo criterio que cleanOldSensorData). */
+function getOldAudioRecordings(days) {
+  if (!Number.isInteger(days) || days <= 0) return [];
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  return db.prepare('SELECT * FROM audio_recordings WHERE recorded_at < ?').all(cutoff);
+}
+
+function getAudioRecordingFilenames(deviceId) {
+  return db.prepare('SELECT filename FROM audio_recordings WHERE device_id = ?')
+    .all(deviceId)
+    .map(r => r.filename);
+}
+
+// ============================================
 // COMANDOS PENDIENTES
 // ============================================
 
@@ -657,6 +759,17 @@ module.exports = {
   getUltrasonicConfigs,
   setUltrasonicConfig,
   deleteUltrasonicConfig,
+  // Audio
+  getAudioConfig,
+  setAudioConfig,
+  addAudioRecording,
+  getAudioRecordings,
+  countAudioRecordings,
+  getAudioRecordingById,
+  deleteAudioRecording,
+  getExcessAudioRecordings,
+  getOldAudioRecordings,
+  getAudioRecordingFilenames,
   // Pending Commands
   savePendingCommand,
   getPendingCommands,

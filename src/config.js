@@ -139,10 +139,28 @@ function getRetentionDays() {
   return days;
 }
 
+/**
+ * Grabaciones de audio que se conservan por dispositivo (0 = sin límite).
+ * Por defecto 200: 10 s a 16 kHz son ~320 KB, así que ~64 MB por dispositivo.
+ */
+function getAudioMaxPerDevice() {
+  const raw = (process.env.AUDIO_MAX_PER_DEVICE || '').trim();
+  if (!raw) return 200;
+
+  const max = Number.parseInt(raw, 10);
+  if (!Number.isInteger(max) || max < 0) {
+    console.warn(`⚠️  AUDIO_MAX_PER_DEVICE inválido ("${raw}"), se usa 200.`);
+    return 200;
+  }
+
+  return max;
+}
+
 module.exports = {
   loadEnvFile,
   getAllowedOrigins,
   getRetentionDays,
+  getAudioMaxPerDevice,
   resolveJwtSecret,
   getDeviceToken,
   checkDeviceToken,

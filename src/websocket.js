@@ -236,6 +236,7 @@ function handleDeviceRegister(socket, data, setMac) {
   const dhtConfigs = db.getDhtConfigs(device.id);
   const i2cConfigs = db.getI2cConfigs(device.id);
   const ultrasonicConfigs = db.getUltrasonicConfigs(device.id);
+  const audioConfig = db.getAudioConfig(device.id);
 
   // Verificar si hay OTA pendiente
   const pendingOta = db.getPendingOtaTasks(device.id);
@@ -249,6 +250,7 @@ function handleDeviceRegister(socket, data, setMac) {
     dht: dhtConfigs,
     i2c: i2cConfigs,
     ultrasonic: ultrasonicConfigs,
+    audio: audioConfig,
     ota: pendingOta.length > 0 ? pendingOta[0] : null
   }));
 

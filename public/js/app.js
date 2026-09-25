@@ -28,6 +28,13 @@ function app() {
         deviceI2cs: [],
         deviceUltrasonics: [],
 
+        // Audio (micrófono I2S)
+        audioConfig: null,
+        audioRecordings: [],
+        audioTotal: 0,
+        audioUrls: {},       // id de grabación -> blob URL ya descargado
+        audioMessage: '',
+
         // Control Panel
         showControlPanel: false,
         controlPanelDevice: null,
@@ -301,6 +308,14 @@ function app() {
                     console.log('OTA Status:', data);
                     break;
 
+                case 'audio_recording':
+                    if (this.showDeviceModal && this.selectedDevice?.id === data.device_id) {
+                        this.audioRecordings.unshift(data.recording);
+                        this.audioTotal++;
+                        this.audioMessage = '';
+                    }
+                    break;
+
                 case 'i2c_scan_result':
                     console.log('Resultado escaneo I2C:', data.devices);
                     this.i2cScanResults = data.devices;
@@ -343,6 +358,7 @@ function app() {
             this.deviceDhts = data.dht || [];
             this.deviceI2cs = data.i2c || [];
             this.deviceUltrasonics = data.ultrasonic || [];
+            await this.loadAudio(device.id);
 
             this.showDeviceModal = true;
         },
@@ -637,6 +653,109 @@ function app() {
             });
 
             this.deviceUltrasonics = this.deviceUltrasonics.filter(u => u.id !== id);
+        },
+
+        // Audio
+        // Pines por defecto que no chocan con I2C ni con el LED de cada placa
+        defaultAudioConfig(boardModel) {
+            const pins = {
+                'ESP32-C3': [6, 7, 5],
+                'ESP32-S3': [15, 16, 17],
+                'ESP32-S2': [15, 16, 17],
+                'ESP32': [26, 25, 33]
+            }[boardModel] || [26, 25, 33];
+
+            return {
+                enabled: false,
+                sck_pin: pins[0], ws_pin: pins[1], sd_pin: pins[2],
+                channel: 0, sample_rate: 16000, duration_sec: 10,
+                capture_interval_sec: 300, gain: 16
+            };
+        },
+
+        async loadAudio(deviceId) {
+            Object.values(this.audioUrls).forEach(url => URL.revokeObjectURL(url));
+            this.audioUrls = {};
+            this.audioMessage = '';
+
+            const data = await this.api(`/api/devices/${deviceId}/audio`);
+            this.audioConfig = data.config || this.defaultAudioConfig(this.selectedDevice?.board_model);
+            this.audioRecordings = data.recordings || [];
+            this.audioTotal = data.total || 0;
+        },
+
+        async saveAudioConfig() {
+            const data = await this.api(`/api/devices/${this.selectedDevice.id}/audio/config`, {
+                method: 'PUT',
+                body: JSON.stringify(this.audioConfig)
+            });
+
+            if (data.error) {
+                this.audioMessage = `❌ ${data.error}`;
+                return;
+            }
+
+            this.audioConfig = data.config;
+            this.audioMessage = '✅ Configuración guardada';
+            setTimeout(() => { if (this.audioMessage.startsWith('✅')) this.audioMessage = ''; }, 3000);
+        },
+
+        async requestAudioCapture() {
+            // body '{}': Fastify rechaza con 400 un POST JSON sin cuerpo
+            const data = await this.api(`/api/devices/${this.selectedDevice.id}/audio/capture`, { method: 'POST', body: '{}' });
+            this.audioMessage = data.error
+                ? `❌ ${data.error}`
+                : `⏳ ${data.message} (${this.audioConfig.duration_sec} s + subida)`;
+        },
+
+        async fetchRecording(rec) {
+            if (this.audioUrls[rec.id]) return this.audioUrls[rec.id];
+
+            // El WAV se pide con el JWT en la cabecera y se reproduce desde un blob
+            const res = await fetch(`/api/audio/${rec.id}/file`, {
+                headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+            const url = URL.createObjectURL(await res.blob());
+            this.audioUrls[rec.id] = url;
+            return url;
+        },
+
+        async playRecording(rec) {
+            try {
+                await this.fetchRecording(rec);
+            } catch (err) {
+                this.audioMessage = `❌ No se pudo cargar la grabación (${err.message})`;
+            }
+        },
+
+        async downloadRecording(rec) {
+            try {
+                const a = document.createElement('a');
+                a.href = await this.fetchRecording(rec);
+                a.download = rec.filename;
+                a.click();
+            } catch (err) {
+                this.audioMessage = `❌ No se pudo descargar la grabación (${err.message})`;
+            }
+        },
+
+        async deleteRecording(rec) {
+            if (!confirm('¿Eliminar esta grabación?')) return;
+
+            await this.api(`/api/audio/${rec.id}`, { method: 'DELETE' });
+
+            if (this.audioUrls[rec.id]) {
+                URL.revokeObjectURL(this.audioUrls[rec.id]);
+                delete this.audioUrls[rec.id];
+            }
+            this.audioRecordings = this.audioRecordings.filter(r => r.id !== rec.id);
+            this.audioTotal--;
+        },
+
+        formatDuration(ms) {
+            return `${(ms / 1000).toFixed(1)} s`;
         },
 
         buildLogEntry(payload) {

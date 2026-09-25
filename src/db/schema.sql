@@ -104,6 +104,39 @@ CREATE TABLE IF NOT EXISTS ultrasonic_configs (
     UNIQUE(device_id, trig_pin, echo_pin)
 );
 
+-- Configuración del micrófono I2S (INMP441) por dispositivo: uno por dispositivo
+CREATE TABLE IF NOT EXISTS audio_configs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id INTEGER NOT NULL,
+    enabled INTEGER DEFAULT 0,
+    sck_pin INTEGER NOT NULL,
+    ws_pin INTEGER NOT NULL,
+    sd_pin INTEGER NOT NULL,
+    channel INTEGER DEFAULT 0,                  -- 0 = izquierdo (L/R a GND), 1 = derecho (L/R a 3V3)
+    sample_rate INTEGER DEFAULT 16000,          -- Hz: 8000 o 16000
+    duration_sec INTEGER DEFAULT 10,            -- Duración de cada grabación
+    capture_interval_sec INTEGER DEFAULT 300,   -- Cada cuánto se graba (0 = en cada ciclo)
+    gain INTEGER DEFAULT 16,                    -- Ganancia digital (x1 - x64)
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
+    UNIQUE(device_id)
+);
+
+-- Grabaciones de audio recibidas (el WAV va en disco, en recordings/)
+CREATE TABLE IF NOT EXISTS audio_recordings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id INTEGER NOT NULL,
+    filename TEXT NOT NULL UNIQUE,
+    sample_rate INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    rms_dbfs REAL,                              -- Nivel medio de la grabación
+    peak_dbfs REAL,                             -- Pico de la grabación
+    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_audio_recordings_device ON audio_recordings(device_id, recorded_at);
+
 -- Datos de sensores (historial)
 CREATE TABLE IF NOT EXISTS sensor_data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

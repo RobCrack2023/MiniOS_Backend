@@ -19,6 +19,7 @@ Backend centralizado para gestionar dispositivos ESP32 con MiniOS WiFi Client.
 | AHT20 | I2C (0x38) | Temperatura, Humedad |
 | BMP280 | I2C (0x76 / 0x77) | Temperatura, Presión, Altitud |
 | HC-SR04 | Digital TRIG/ECHO | Distancia (cm) |
+| INMP441 | I2S (SCK/WS/SD) | Grabaciones de audio (WAV) que se escuchan en el dashboard |
 | GPIO OUTPUT | Digital | Control (ON/OFF) |
 | GPIO PWM | Digital | Control (0–255) |
 | GPIO INPUT | Digital / Analógico | Lectura |
@@ -67,6 +68,7 @@ DEVICE_TOKEN=
 | `ALLOWED_ORIGINS` | No se emiten cabeceras CORS. El dashboard va en el mismo origen, así que no las necesita. Usar una lista separada por comas para permitir clientes externos. |
 | `DATA_RETENTION_DAYS` | No se borra nada (la tabla `sensor_data` crece sin límite). Poner p. ej. `30` activa la purga diaria del historial más antiguo. **El borrado es irreversible.** |
 | `MAX_FIRMWARE_MB` | 8 MB. Debe ser menor o igual que el `client_max_body_size` de nginx. |
+| `AUDIO_MAX_PER_DEVICE` | 200 grabaciones por dispositivo; al superarlo se borran las más antiguas. `0` = sin límite. `DATA_RETENTION_DAYS` también purga las grabaciones por antigüedad. |
 
 ### Autenticación de dispositivos
 
@@ -387,6 +389,16 @@ Authorization: Bearer <token>
 | POST | `/api/devices/:id/ultrasonic` | Agregar/actualizar sensor ultrasónico |
 | DELETE | `/api/devices/:id/ultrasonic/:id` | Eliminar sensor ultrasónico |
 
+### Audio (micrófono I2S INMP441)
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/devices/:id/audio` | Configuración del micrófono y últimas grabaciones (`limit`, default 50) |
+| PUT | `/api/devices/:id/audio/config` | Guardar configuración (pines, duración, intervalo, ganancia) |
+| POST | `/api/devices/:id/audio/capture` | Pedir una grabación inmediata (encola si el dispositivo duerme) |
+| GET | `/api/audio/:id/file` | Descargar el WAV (requiere JWT en la cabecera) |
+| DELETE | `/api/audio/:id` | Eliminar una grabación y su archivo |
+| POST | `/api/audio/upload` | **Solo ESP32** (token de dispositivo, no JWT). Ver abajo |
+
 ### Datos de Sensores (Historial)
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
@@ -434,6 +446,33 @@ de llegar al ESP32 o a SQLite.
 
 Un `.bin` truncado guardado como válido dejaría inservibles los dispositivos que lo
 recibieran por OTA.
+
+---
+
+## Grabaciones de audio
+
+El ESP32 graba con un micrófono INMP441 y sube el audio **mientras graba**, sin
+guardarlo entero en RAM:
+
+```
+POST /api/audio/upload
+Content-Type: application/octet-stream
+X-Device-Mac: AA:BB:CC:DD:EE:FF
+X-Sample-Rate: 16000
+X-Device-Token: <DEVICE_TOKEN>      (si está configurado)
+
+<PCM de 16 bits, mono, little-endian>
+```
+
+- El backend añade la cabecera WAV, lo guarda en `recordings/` y calcula el nivel
+  RMS y el pico en dBFS. Luego avisa a los dashboards con `audio_recording`.
+- Frecuencias admitidas: **8000 o 16000 Hz**. Duración máxima: **30 s**, que a
+  16 kHz son 960 KB. Así cabe en el `client_max_body_size` de 1 MB que nginx trae
+  por defecto y no hace falta tocar el proxy. Lo que pase de ese tamaño se rechaza
+  con `413`.
+- El dashboard reproduce el WAV pidiéndolo con `fetch` y el JWT en la cabecera, y
+  lo carga desde un blob, para que el token nunca vaya en una URL.
+- Los archivos WAV no están en la base de datos: incluye `recordings/` en los backups.
 
 ---
 
@@ -525,9 +564,13 @@ recibieran por OTA.
   "dht": [ { "pin": 4, "sensor_type": "DHT22", "name": "Interior", "read_interval": 5000 } ],
   "i2c": [ { "id": 1, "sensor_type": "AHT20", "i2c_address": 56, "name": "AHT20 Principal" } ],
   "ultrasonic": [ { "id": 1, "trig_pin": 12, "echo_pin": 13, "name": "Sensor Entrada" } ],
+  "audio": { "enabled": true, "sck_pin": 6, "ws_pin": 7, "sd_pin": 5, "channel": 0,
+             "sample_rate": 16000, "duration_sec": 10, "capture_interval_sec": 300, "gain": 16 },
   "ota": null
 }
 ```
+
+`audio` es `null` si el dispositivo no tiene micrófono configurado.
 
 **Comandos** (`type: "command"`):
 
@@ -542,6 +585,8 @@ recibieran por OTA.
 | `remove_i2c` | Eliminar un sensor I2C | `i2c_address` |
 | `scan_i2c` | Escanear bus I2C y reportar | — |
 | `update_ultrasonic` | Reemplazar configuración ultrasónica | `ultrasonic: [...]` |
+| `update_audio` | Reemplazar configuración del micrófono | `audio: {...}` |
+| `capture_audio` | Grabar y subir audio ahora | — |
 | `reboot` | Reiniciar el dispositivo | — |
 | `ota_update` | Iniciar actualización OTA | `ota_id`, `filename`, `filesize`, `checksum` |
 
@@ -557,6 +602,7 @@ recibieran por OTA.
 | `device_data` | Nuevas lecturas de sensores (`mac_address`, `device_id`, `payload`, `last_seen`) |
 | `i2c_scan_result` | Resultado de escaneo I2C (`devices: [...]`) |
 | `ota_status` | Estado de actualización OTA |
+| `audio_recording` | Nueva grabación de audio recibida (`device_id`, `mac_address`, `recording`) |
 
 ---
 
@@ -579,18 +625,21 @@ MiniOS_Backend/
 ├── src/
 │   ├── index.js           # Entry point, configuración Fastify
 │   ├── websocket.js       # WebSocket server (dispositivos + dashboard)
+│   ├── audioStore.js      # WAV en disco: cabecera, niveles, límites y purga
 │   ├── db/
 │   │   ├── database.js    # SQLite wrapper (better-sqlite3)
 │   │   └── schema.sql     # Schema de la base de datos
 │   └── routes/
 │       ├── api.js         # REST API (devices, GPIO, DHT, I2C, ultrasonic, data)
 │       ├── auth.js        # Autenticación JWT
+│       ├── audio.js       # Micrófono: configuración, subida y reproducción
 │       └── ota.js         # Gestión de firmware OTA
 ├── public/                # Dashboard web (HTML + CSS + JS)
 │   ├── dashboard.html
 │   ├── css/style.css
 │   └── js/app.js
 ├── firmware/              # Archivos .bin subidos para OTA
+├── recordings/            # Grabaciones de audio (.wav)
 ├── minios.db              # Base de datos SQLite (generada al iniciar)
 ├── .env                   # Variables de entorno (no subir al repo)
 └── package.json
