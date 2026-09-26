@@ -158,8 +158,15 @@ function app() {
 
         // API Helper
         async api(url, options = {}) {
+            // Fastify responde 400 (FST_ERR_CTP_EMPTY_JSON_BODY) a un POST/PUT con
+            // Content-Type JSON y cuerpo vacío: así fallaban Reiniciar, Activar
+            // firmware y Escanear I2C, que no llevan cuerpo.
+            const method = (options.method || 'GET').toUpperCase();
+            const body = options.body ?? (['POST', 'PUT', 'PATCH'].includes(method) ? '{}' : undefined);
+
             const res = await fetch(url, {
                 ...options,
+                body,
                 headers: {
                     'Authorization': `Bearer ${this.token}`,
                     'Content-Type': 'application/json',
@@ -701,8 +708,7 @@ function app() {
         },
 
         async requestAudioCapture() {
-            // body '{}': Fastify rechaza con 400 un POST JSON sin cuerpo
-            const data = await this.api(`/api/devices/${this.selectedDevice.id}/audio/capture`, { method: 'POST', body: '{}' });
+            const data = await this.api(`/api/devices/${this.selectedDevice.id}/audio/capture`, { method: 'POST' });
             this.audioMessage = data.error
                 ? `❌ ${data.error}`
                 : `⏳ ${data.message} (${this.audioConfig.duration_sec} s + subida)`;
