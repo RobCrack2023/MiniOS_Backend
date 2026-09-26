@@ -2,6 +2,8 @@
 rem ============================================================
 rem  Instala o actualiza MiniOS Backend en la VPS por SSH.
 rem  Sube setup-vps.sh y lo ejecuta alli como root.
+rem  Antes de tocar nada guarda una copia de la base de datos en
+rem  deploy\backups\ de este PC (fuera de git: tiene datos reales).
 rem  Se puede volver a ejecutar: conserva base de datos y .env.
 rem ============================================================
 setlocal EnableExtensions
@@ -64,19 +66,57 @@ if /i "%RESET_KEY%"=="s" (
 )
 
 echo.
-echo ---- 1/2 Subiendo el script (SSH te pedira la contrasena) ----
-ssh -p %SSH_PORT% -o StrictHostKeyChecking=accept-new %VPS_USER%@%VPS_HOST% "cat > /tmp/minios-setup.sh" < setup-vps.sh
-if errorlevel 1 (
-  echo.
-  echo No se pudo conectar o subir el script.
-  pause
-  exit /b 1
-)
+echo ---- 1/2 Subiendo el script y copiando la base de datos a este PC ----
+echo      (SSH te pedira la contrasena)
+if not exist "backups" mkdir "backups"
+for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "TS=%%i"
+set "BACKUP=backups\minios_%VPS_HOST%_%TS%.db"
+set "BACKUP_LOG=%BACKUP%.log"
 
+rem Una sola conexion para no pedir otra contrasena: la entrada sube el script,
+rem la salida trae la copia de la base de datos y los mensajes van al .log.
+rem sed quita los CRLF por si git convirtio el .sh al formato de Windows.
+ssh -p %SSH_PORT% -o StrictHostKeyChecking=accept-new %VPS_USER%@%VPS_HOST% "cat > /tmp/minios-setup.sh && sed -i 's/\r$//' /tmp/minios-setup.sh && if [ $(id -u) -eq 0 ]; then bash /tmp/minios-setup.sh --backup-db; else sudo -n bash /tmp/minios-setup.sh --backup-db; fi" < setup-vps.sh > "%BACKUP%" 2> "%BACKUP_LOG%"
+set "RC=%errorlevel%"
+if "%RC%"=="0" goto check_backup
+if "%RC%"=="3" goto no_db
+if "%RC%"=="255" goto ssh_failed
+goto backup_failed
+
+:check_backup
+rem La copia solo vale si su SHA-256 coincide con el que calculo la VPS
+powershell -NoProfile -Command "$m = Select-String -Path '%BACKUP_LOG%' -Pattern '^SHA256=([0-9a-f]{64})'; $h = (Get-FileHash '%BACKUP%' -Algorithm SHA256).Hash.ToLower(); if ($m -and $m.Matches[0].Groups[1].Value -eq $h) { '     Copia verificada: {0} ({1:N0} KB)' -f (Resolve-Path '%BACKUP%'), ((Get-Item '%BACKUP%').Length / 1KB); exit 0 } else { '     La copia llego danada (el SHA-256 no coincide).'; exit 1 }"
+if errorlevel 1 goto backup_failed
+del "%BACKUP_LOG%" >nul 2>&1
+goto install
+
+:no_db
+del "%BACKUP%" "%BACKUP_LOG%" >nul 2>&1
+echo      No hay base de datos en la VPS todavia: instalacion nueva, nada que copiar.
+goto install
+
+:ssh_failed
+type "%BACKUP_LOG%" 2>nul
+del "%BACKUP%" "%BACKUP_LOG%" >nul 2>&1
+echo.
+echo No se pudo conectar por SSH.
+pause
+exit /b 1
+
+:backup_failed
+type "%BACKUP_LOG%" 2>nul
+del "%BACKUP%" "%BACKUP_LOG%" >nul 2>&1
+echo.
+echo No se pudo copiar la base de datos a este PC.
+echo Si el usuario SSH no es root, sudo necesita contrasena: usa root.
+set "GO_ON=n"
+set /p "GO_ON=Continuar sin copia local? La VPS hace igualmente su propia copia. (s/N): "
+if /i not "%GO_ON%"=="s" (pause & exit /b 1)
+
+:install
 echo.
 echo ---- 2/2 Instalando (tarda 5-10 minutos; SSH pedira la contrasena otra vez) ----
-rem sed quita los CRLF por si git convirtio el .sh al formato de Windows
-ssh -t -p %SSH_PORT% %VPS_USER%@%VPS_HOST% "sed -i 's/\r$//' /tmp/minios-setup.sh && if [ $(id -u) -eq 0 ]; then bash /tmp/minios-setup.sh '%DOMAIN%' '%EMAIL%' '%TOKEN%' '%BRANCH%' '%SSH_PORT%'; else sudo bash /tmp/minios-setup.sh '%DOMAIN%' '%EMAIL%' '%TOKEN%' '%BRANCH%' '%SSH_PORT%'; fi"
+ssh -t -p %SSH_PORT% %VPS_USER%@%VPS_HOST% "if [ $(id -u) -eq 0 ]; then bash /tmp/minios-setup.sh '%DOMAIN%' '%EMAIL%' '%TOKEN%' '%BRANCH%' '%SSH_PORT%'; else sudo bash /tmp/minios-setup.sh '%DOMAIN%' '%EMAIL%' '%TOKEN%' '%BRANCH%' '%SSH_PORT%'; fi"
 if errorlevel 1 (
   echo.
   echo La instalacion termino con errores. Revisa los mensajes de arriba.

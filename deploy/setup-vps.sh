@@ -9,13 +9,10 @@
 # Uso (como root):  bash setup-vps.sh <dominio> <email> [device_token] [rama] [puerto_ssh]
 #   device_token vacío = generar uno nuevo · "-" = sin token
 #
+#   bash setup-vps.sh --backup-db   escribe en stdout una copia de minios.db
+#                                   (sale con 3 si todavía no hay base de datos)
+#
 set -euo pipefail
-
-DOMAIN="${1:?Falta el dominio}"
-EMAIL="${2:?Falta el email para el certificado HTTPS}"
-DEVICE_TOKEN_IN="${3:-}"
-BRANCH="${4:-main}"
-SSH_PORT_IN="${5:-}"
 
 REPO_URL="https://github.com/RobCrack2023/MiniOS_Backend.git"
 APP_USER="minios"
@@ -23,6 +20,30 @@ APP_HOME="/home/$APP_USER"
 APP_DIR="$APP_HOME/MiniOS_Backend"
 APP_PORT=3001
 NODE_MAJOR=22   # LTS vigente (Node 20 dejó de tener soporte en abril de 2026)
+
+# Copia de la base de datos para deploy-vps.bat, que la guarda en el PC.
+# Todo mensaje va a stderr: stdout lleva el archivo y cualquier texto lo corrompería.
+if [ "${1:-}" = "--backup-db" ]; then
+  DB="$APP_DIR/minios.db"
+  if [ ! -f "$DB" ]; then
+    echo "No hay base de datos en la VPS todavía (instalación nueva)." >&2
+    exit 3
+  fi
+  TMP=$(mktemp)
+  trap 'rm -f "$TMP"' EXIT
+  # .backup da una copia consistente aunque el backend esté escribiendo (WAL)
+  sqlite3 "$DB" ".backup '$TMP'" >&2
+  cat "$TMP"
+  # El .bat compara este hash con el del archivo recibido
+  echo "SHA256=$(sha256sum "$TMP" | cut -d' ' -f1)" >&2
+  exit 0
+fi
+
+DOMAIN="${1:?Falta el dominio}"
+EMAIL="${2:?Falta el email para el certificado HTTPS}"
+DEVICE_TOKEN_IN="${3:-}"
+BRANCH="${4:-main}"
+SSH_PORT_IN="${5:-}"
 
 log()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m⚠  %s\033[0m\n' "$*"; }

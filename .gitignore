@@ -2,5 +2,6 @@ node_modules/
 *.db
 firmware/*.bin
 recordings/
+deploy/backups/
 .env
 .DS_Store

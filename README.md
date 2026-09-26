@@ -107,9 +107,17 @@ dominio, email y token, sube `deploy/setup-vps.sh` a la VPS y lo ejecuta. Instal
 Node.js 22, PM2, nginx, firewall y HTTPS, y al terminar muestra la contraseña de
 admin y los comandos para configurar cada ESP32.
 
-Se puede volver a ejecutar para actualizar: hace backup de la base de datos y
-conserva el `.env`, las grabaciones y el HTTPS. Clona la rama indicada desde
-GitHub, así que los cambios tienen que estar subidos antes.
+Se puede volver a ejecutar para actualizar: conserva el `.env`, las grabaciones
+y el HTTPS. Clona la rama indicada desde GitHub, así que los cambios tienen que
+estar subidos antes.
+
+Antes de tocar nada descarga una copia de la base de datos a
+`deploy/backups/minios_<ip>_<fecha>.db` en el PC. La copia se hace con
+`sqlite3 .backup` (es consistente aunque el backend esté escribiendo) y se
+comprueba con SHA-256 contra la de la VPS. Además, la VPS guarda su propia
+copia junto a `minios.db`. `deploy/backups/` está en `.gitignore`: tiene datos
+reales y el repositorio es público. Las grabaciones de audio no entran en esta
+copia.
 
 Los pasos manuales equivalentes son estos:
 
