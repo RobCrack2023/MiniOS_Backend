@@ -1988,6 +1988,98 @@ input:checked + .slider:before {
 
 .report-audio { height: 32px; max-width: 240px; }
 
+/* Analizador de espectro */
+.spectrum-peak {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+}
+.spectrum-peak b {
+    margin-left: 4px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+}
+
+.spectrum-label {
+    margin: 10px 0 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.spectrum-label small { color: var(--text-muted); font-weight: 500; letter-spacing: 0; text-transform: none; }
+
+.spectrum-bars-box,
+.spectrum-gram-box canvas {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.spectrum-bars-box { height: 130px; }
+.spectrum-bars-box canvas,
+.spectrum-gram-box canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* Etiquetas de frecuencia en HTML: el espectrograma se desplaza y no puede
+   llevarlas pintadas en el lienzo */
+.spectrum-axis {
+    position: relative;
+    height: 18px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+.spectrum-axis span {
+    position: absolute;
+    top: 2px;
+    transform: translateX(-50%);
+}
+.spectrum-axis .spectrum-unit { right: 0; left: auto; transform: none; }
+
+.spectrum-gram-box {
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    height: 170px;
+}
+.spectrum-gram-box canvas { min-width: 0; }
+
+.spectrum-yaxis {
+    position: relative;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+.spectrum-yaxis span {
+    position: absolute;
+    right: 6px;
+    transform: translateY(50%);
+}
+
+.spectrum-legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+.spectrum-legend-ramp {
+    width: 140px;
+    height: 8px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #131e2e, #104281, #1c5cab, #2a78d6, #5598e7, #86b6ef, #cde2fb);
+    border: 1px solid var(--border);
+}
+
 /* La tabla de grabaciones no cabe en un móvil: se desplaza dentro de su caja en
    vez de ensanchar toda la página */
 .reports .table-container {

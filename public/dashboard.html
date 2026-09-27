@@ -347,6 +347,46 @@
                             </div>
                         </div>
 
+                        <!-- Analizador de espectro: se activa al reproducir una grabación -->
+                        <div class="report-chart-card mt-20" x-show="reports.audio.recordings.length > 0">
+                            <div class="report-chart-title">
+                                <span>Analizador de espectro</span>
+                                <small x-show="!spectrumInfo.rec">Pulsa ▶ en una grabación para verlo en vivo</small>
+                                <small x-show="spectrumInfo.rec"
+                                       x-text="formatDate(spectrumInfo.rec?.recorded_at) + (spectrumInfo.playing ? '' : ' · en pausa')"></small>
+                                <span class="spectrum-peak" x-show="spectrumInfo.rec">
+                                    Frecuencia dominante
+                                    <b x-text="spectrumInfo.peakHz ? (spectrumInfo.peakHz >= 1000 ? (spectrumInfo.peakHz / 1000).toFixed(2) + ' kHz' : spectrumInfo.peakHz + ' Hz') : '—'"></b>
+                                </span>
+                            </div>
+
+                            <div class="spectrum-label">Espectro <small>(energía por frecuencia, escala logarítmica)</small></div>
+                            <div class="spectrum-bars-box">
+                                <canvas id="spectrum-bars" role="img" aria-label="Espectro de frecuencias en vivo"></canvas>
+                            </div>
+                            <div class="spectrum-axis">
+                                <template x-for="t in spectrumTicks" :key="t.hz">
+                                    <span :style="'left:' + t.pct + '%'" x-text="t.label"></span>
+                                </template>
+                                <span class="spectrum-unit">Hz</span>
+                            </div>
+
+                            <div class="spectrum-label">Espectrograma <small>(el tiempo avanza hacia la izquierda; color = intensidad)</small></div>
+                            <div class="spectrum-gram-box">
+                                <div class="spectrum-yaxis">
+                                    <template x-for="t in spectrumTicks" :key="t.hz">
+                                        <span :style="'bottom:' + t.pct + '%'" x-text="t.label"></span>
+                                    </template>
+                                </div>
+                                <canvas id="spectrum-gram" role="img" aria-label="Espectrograma en vivo"></canvas>
+                            </div>
+                            <div class="spectrum-legend">
+                                <span>débil</span>
+                                <span class="spectrum-legend-ramp"></span>
+                                <span>intensa</span>
+                            </div>
+                        </div>
+
                         <div class="table-container mt-20" x-show="reports.audio.recordings.length > 0">
                             <table>
                                 <thead>
@@ -369,7 +409,10 @@
                                             </td>
                                             <td>
                                                 <template x-if="audioUrls[rec.id]">
-                                                    <audio controls autoplay :src="audioUrls[rec.id]" class="report-audio"></audio>
+                                                    <audio controls autoplay :src="audioUrls[rec.id]" class="report-audio"
+                                                           @play="startSpectrum($el, rec)"
+                                                           @pause="stopSpectrum($el)"
+                                                           @ended="stopSpectrum($el)"></audio>
                                                 </template>
                                                 <template x-if="!audioUrls[rec.id]">
                                                     <button class="btn btn-primary btn-sm" @click="playRecording(rec)" title="Escuchar">▶</button>

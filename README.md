@@ -477,6 +477,10 @@ configurar.
   ciclos de deep sleep, para que un dispositivo dormido no parezca desconectado.
   Con un rango relativo ("24 horas") la vista se refresca cada minuto, y las
   grabaciones nuevas aparecen al instante.
+- **Analizador de espectro.** Al reproducir una grabación se muestran en vivo su
+  espectro (barras en escala logarítmica hasta la frecuencia máxima de la
+  grabación), un espectrograma en cascada y la frecuencia dominante. Se hace en el
+  navegador con la Web Audio API: no hay procesado en el servidor.
 
 ### Notas sobre `GET /api/devices/:id/data`
 

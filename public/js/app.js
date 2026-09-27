@@ -7,6 +7,57 @@ const reportCharts = new Map();
 // colores vecinos y contraste >= 3:1. El orden es parte de la validación.
 const SERIES_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
 
+// ============================================
+// ANALIZADOR DE ESPECTRO (Web Audio API)
+// ============================================
+// Nodos de audio y el bucle de dibujo van fuera de Alpine, como los gráficos:
+// son objetos nativos con estado que el Proxy reactivo rompería.
+const spectrum = {
+    ctx: null,
+    analyser: null,
+    sources: new WeakMap(),   // <audio> -> MediaElementSource (solo se puede crear uno por elemento)
+    current: null,            // <audio> que se está analizando
+    raf: 0
+};
+
+const SPECTRUM_MIN_HZ = 60;
+const SPECTRUM_BANDS = 64;
+
+// Rampa secuencial de un solo tono (azul) para la intensidad del espectrograma:
+// lo débil se funde con el fondo oscuro y lo intenso se aclara
+const SPECTRUM_RAMP = ['#131e2e', '#104281', '#184f95', '#1c5cab', '#256abf', '#2a78d6',
+                       '#3987e5', '#5598e7', '#6da7ec', '#86b6ef', '#9ec5f4', '#cde2fb'];
+
+// Tabla de 256 colores [r, g, b] interpolados sobre la rampa, uno por valor del analizador
+const SPECTRUM_LUT = (() => {
+    const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+    const stops = SPECTRUM_RAMP.map(rgb);
+    return Array.from({ length: 256 }, (_, v) => {
+        const pos = (v / 255) * (stops.length - 1);
+        const i = Math.min(Math.floor(pos), stops.length - 2);
+        const t = pos - i;
+        return stops[i].map((c, k) => Math.round(c + (stops[i + 1][k] - c) * t));
+    });
+})();
+
+/** Frecuencia -> posición 0..1 en escala logarítmica entre SPECTRUM_MIN_HZ y maxHz. */
+function spectrumPos(hz, maxHz) {
+    return Math.log(hz / SPECTRUM_MIN_HZ) / Math.log(maxHz / SPECTRUM_MIN_HZ);
+}
+
+/** Ajusta el lienzo a su tamaño en pantalla y a la densidad de píxeles. */
+function fitCanvas(canvas) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+    const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+        return true;
+    }
+    return false;
+}
+
 function app() {
     return {
         // Auth
@@ -83,6 +134,8 @@ function app() {
             sensorKeys: [],     // orden fijo de sensores del dispositivo (decide el color)
             keysFor: null       // dispositivo al que corresponde sensorKeys
         },
+        // Grabación que muestra el analizador de espectro
+        spectrumInfo: { rec: null, playing: false, peakHz: null },
         REPORT_PRESETS: [
             { id: '1h', label: '1 hora', ms: 3600000 },
             { id: '24h', label: '24 horas', ms: 86400000 },
@@ -183,6 +236,9 @@ function app() {
                 } else {
                     clearInterval(this._reportsTimer);
                     this.destroyReportCharts();
+                    // Al salir de Reportes no se sigue oyendo nada de fondo
+                    document.querySelectorAll('.reports audio').forEach(a => a.pause());
+                    this.stopSpectrum();
                 }
             });
         },
@@ -1367,6 +1423,156 @@ function app() {
                     }
                 }
             }));
+        },
+
+        // ============================================
+        // ANALIZADOR DE ESPECTRO
+        // ============================================
+
+        // Límite de frecuencia de la grabación: a 16 kHz de muestreo no hay nada
+        // por encima de 8 kHz, y dibujar hasta 24 kHz dejaría media gráfica vacía
+        get spectrumMaxHz() {
+            return (this.spectrumInfo.rec?.sample_rate || 16000) / 2;
+        },
+
+        // Marcas de frecuencia (compartidas por las barras y el espectrograma)
+        get spectrumTicks() {
+            const max = this.spectrumMaxHz;
+            return [100, 250, 500, 1000, 2000, 4000, 8000, 16000]
+                .filter(hz => hz <= max)
+                .map(hz => ({ hz, label: hz >= 1000 ? `${hz / 1000}k` : String(hz), pct: spectrumPos(hz, max) * 100 }));
+        },
+
+        startSpectrum(el, rec) {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) {
+                this.reports.error = 'Este navegador no permite analizar el audio (sin Web Audio API).';
+                return;
+            }
+
+            if (!spectrum.ctx) {
+                spectrum.ctx = new AudioCtx();
+                spectrum.analyser = spectrum.ctx.createAnalyser();
+                spectrum.analyser.fftSize = 4096;             // ~12 Hz por bin a 48 kHz: detalle en graves
+                spectrum.analyser.smoothingTimeConstant = 0.7;
+                spectrum.analyser.minDecibels = -100;
+                spectrum.analyser.maxDecibels = -20;
+                spectrum.analyser.connect(spectrum.ctx.destination);
+            }
+            spectrum.ctx.resume();
+
+            // Un <audio> conectado al grafo ya solo suena a través de él, por eso el
+            // analizador va conectado a la salida. Cada elemento se conecta una vez.
+            if (!spectrum.sources.has(el)) {
+                const source = spectrum.ctx.createMediaElementSource(el);
+                source.connect(spectrum.analyser);
+                spectrum.sources.set(el, source);
+            }
+
+            // El analizador muestra una grabación: las demás se pausan
+            document.querySelectorAll('.reports audio').forEach(a => { if (a !== el && !a.paused) a.pause(); });
+
+            const changed = spectrum.current !== el;
+            spectrum.current = el;
+            this.spectrumInfo = { rec, playing: true, peakHz: changed ? null : this.spectrumInfo.peakHz };
+            this.$nextTick(() => this.runSpectrum(changed));
+        },
+
+        stopSpectrum(el) {
+            if (el && el !== spectrum.current) return;
+            cancelAnimationFrame(spectrum.raf);
+            this.spectrumInfo.playing = false;
+        },
+
+        runSpectrum(clear) {
+            const barsCanvas = document.getElementById('spectrum-bars');
+            const gramCanvas = document.getElementById('spectrum-gram');
+            if (!barsCanvas || !gramCanvas || !spectrum.analyser) return;
+
+            cancelAnimationFrame(spectrum.raf);
+            const analyser = spectrum.analyser;
+            const bins = new Uint8Array(analyser.frequencyBinCount);
+            const binHz = spectrum.ctx.sampleRate / analyser.fftSize;
+            const maxHz = Math.min(this.spectrumMaxHz, spectrum.ctx.sampleRate / 2);
+            const bars = barsCanvas.getContext('2d');
+            const gram = gramCanvas.getContext('2d');
+
+            // Frecuencia que corresponde a una posición 0..1 del eje logarítmico
+            const hzAt = pos => SPECTRUM_MIN_HZ * Math.pow(maxHz / SPECTRUM_MIN_HZ, pos);
+            const binAt = hz => Math.min(bins.length - 1, Math.max(0, Math.round(hz / binHz)));
+
+            // Bandas logarítmicas: [primer bin, último bin] de cada barra
+            const bands = Array.from({ length: SPECTRUM_BANDS }, (_, k) => {
+                const lo = binAt(hzAt(k / SPECTRUM_BANDS));
+                const hi = Math.max(lo, binAt(hzAt((k + 1) / SPECTRUM_BANDS)) - 1);
+                return [lo, hi];
+            });
+
+            fitCanvas(barsCanvas);
+            const resized = fitCanvas(gramCanvas);
+
+            // Bin de cada fila del espectrograma (arriba = agudos)
+            const rowBins = Array.from({ length: gramCanvas.height }, (_, y) => binAt(hzAt(1 - y / gramCanvas.height)));
+
+            // Se limpia al cambiar de grabación o de tamaño; al reanudar tras una
+            // pausa se sigue pintando a continuación
+            if (resized || clear) {
+                gram.fillStyle = SPECTRUM_RAMP[0];
+                gram.fillRect(0, 0, gramCanvas.width, gramCanvas.height);
+            }
+
+            const minBin = binAt(SPECTRUM_MIN_HZ);
+            const maxBin = binAt(maxHz);
+            let frameCount = 0;
+
+            const frame = () => {
+                analyser.getByteFrequencyData(bins);
+
+                // --- Barras
+                const W = barsCanvas.width;
+                const H = barsCanvas.height;
+                const dpr = window.devicePixelRatio || 1;
+                const gap = 2 * dpr;                     // separación de 2 px entre barras
+                const bw = W / SPECTRUM_BANDS;
+                bars.clearRect(0, 0, W, H);
+                bars.fillStyle = SERIES_COLORS[0];
+                bands.forEach(([lo, hi], k) => {
+                    let v = 0;
+                    for (let i = lo; i <= hi; i++) if (bins[i] > v) v = bins[i];
+                    const h = Math.max(1, (v / 255) * H);
+                    const x = k * bw + gap / 2;
+                    bars.beginPath();
+                    if (bars.roundRect) bars.roundRect(x, H - h, Math.max(1, bw - gap), h, [2 * dpr, 2 * dpr, 0, 0]);
+                    else bars.rect(x, H - h, Math.max(1, bw - gap), h);
+                    bars.fill();
+                });
+
+                // --- Espectrograma: desplaza a la izquierda y pinta la columna nueva
+                const GW = gramCanvas.width;
+                const GH = gramCanvas.height;
+                const step = Math.max(1, Math.round(dpr));
+                gram.drawImage(gramCanvas, step, 0, GW - step, GH, 0, 0, GW - step, GH);
+                const column = gram.createImageData(step, GH);
+                for (let y = 0; y < GH; y++) {
+                    const [r, g, b] = SPECTRUM_LUT[bins[rowBins[y]]];
+                    for (let s = 0; s < step; s++) {
+                        const o = (y * step + s) * 4;
+                        column.data[o] = r; column.data[o + 1] = g; column.data[o + 2] = b; column.data[o + 3] = 255;
+                    }
+                }
+                gram.putImageData(column, GW - step, 0);
+
+                // --- Frecuencia dominante (se actualiza unas 6 veces por segundo)
+                if (++frameCount % 10 === 0) {
+                    let peak = minBin;
+                    for (let i = minBin; i <= maxBin; i++) if (bins[i] > bins[peak]) peak = i;
+                    this.spectrumInfo.peakHz = bins[peak] > 40 ? Math.round(peak * binHz) : null;
+                }
+
+                if (this.spectrumInfo.playing) spectrum.raf = requestAnimationFrame(frame);
+            };
+
+            frame();
         },
 
         async exportReportCsv() {
