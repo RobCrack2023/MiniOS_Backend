@@ -378,7 +378,9 @@
                                         <span :style="'bottom:' + t.pct + '%'" x-text="t.label"></span>
                                     </template>
                                 </div>
-                                <canvas id="spectrum-gram" role="img" aria-label="Espectrograma en vivo"></canvas>
+                                <div class="spectrum-canvas-wrap">
+                                    <canvas id="spectrum-gram" role="img" aria-label="Espectrograma en vivo"></canvas>
+                                </div>
                             </div>
                             <div class="spectrum-legend">
                                 <span>débil</span>

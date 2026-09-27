@@ -2014,15 +2014,24 @@ input:checked + .slider:before {
 .spectrum-label small { color: var(--text-muted); font-weight: 500; letter-spacing: 0; text-transform: none; }
 
 .spectrum-bars-box,
-.spectrum-gram-box canvas {
+.spectrum-canvas-wrap {
+    position: relative;
+    overflow: hidden;
     background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: var(--radius);
 }
 
 .spectrum-bars-box { height: 130px; }
+
+/* El lienzo va en posición absoluta dentro de una caja de alto fijo. Con
+   height: 100% en una fila de grid sin alto definido, el navegador tomaba el
+   tamaño interno del propio lienzo; al ajustarlo a la densidad de píxeles
+   crecía en cada redibujado hasta tapar la página. */
 .spectrum-bars-box canvas,
-.spectrum-gram-box canvas {
+.spectrum-canvas-wrap canvas {
+    position: absolute;
+    inset: 0;
     display: block;
     width: 100%;
     height: 100%;
@@ -2047,9 +2056,10 @@ input:checked + .slider:before {
 .spectrum-gram-box {
     display: grid;
     grid-template-columns: 34px 1fr;
+    grid-template-rows: 170px;
     height: 170px;
 }
-.spectrum-gram-box canvas { min-width: 0; }
+.spectrum-canvas-wrap { min-width: 0; }
 
 .spectrum-yaxis {
     position: relative;

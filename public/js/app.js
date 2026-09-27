@@ -440,6 +440,8 @@ function app() {
         async loadDevices() {
             const data = await this.api('/api/devices');
             this.devices = data.devices;
+            // Reportes abierto sin dispositivo elegido: ahora ya hay uno que mostrar
+            if (this.currentView === 'reports' && !this.reports.deviceId && this.devices.length) this.loadReports();
         },
 
         async openDeviceModal(device) {
@@ -1112,6 +1114,8 @@ function app() {
         },
 
         async loadReports() {
+            // Si se entró en Reportes antes de que llegara la lista de dispositivos
+            if (!this.reports.deviceId && this.devices.length) this.reports.deviceId = this.devices[0].id;
             if (!this.reports.deviceId) return;
             const query = this.reportQuery();
             if (!query) {
