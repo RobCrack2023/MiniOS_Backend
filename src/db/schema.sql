@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS sensor_data (
     device_id INTEGER NOT NULL,
     sensor_type TEXT NOT NULL, -- temperature, humidity, gpio, analog
     sensor_pin INTEGER,
+    source TEXT,               -- dht, i2c, gpio, analog, ultrasonic (NULL en lecturas antiguas)
     value REAL NOT NULL,
     recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
@@ -197,6 +198,8 @@ INSERT OR IGNORE INTO system_settings (key, value) VALUES ('timezone', 'America/
 -- Índices para mejorar rendimiento
 CREATE INDEX IF NOT EXISTS idx_sensor_data_device ON sensor_data(device_id);
 CREATE INDEX IF NOT EXISTS idx_sensor_data_recorded ON sensor_data(recorded_at);
+-- Los reportes filtran siempre por dispositivo y rango de fechas
+CREATE INDEX IF NOT EXISTS idx_sensor_data_device_time ON sensor_data(device_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_devices_mac ON devices(mac_address);
 CREATE INDEX IF NOT EXISTS idx_ota_history_device ON ota_history(device_id);
 CREATE INDEX IF NOT EXISTS idx_ultrasonic_device ON ultrasonic_configs(device_id);

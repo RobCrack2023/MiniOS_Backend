@@ -420,7 +420,16 @@ Authorization: Bearer <token>
 | DELETE | `/api/audio/:id` | Eliminar una grabación y su archivo |
 | POST | `/api/audio/upload` | **Solo ESP32** (token de dispositivo, no JWT). Ver abajo |
 
-### Datos de Sensores (Historial)
+### Reportes (historial agregado)
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/reports/devices/:id/sensors` | Resumen y series agregadas por sensor en el rango `from`–`to` (ISO 8601; por defecto las últimas 24 h) |
+| GET | `/api/reports/devices/:id/audio` | Resumen de audio y grabaciones del rango (`limit`, default 200) |
+| GET | `/api/reports/devices/:id/export` | CSV de las lecturas del rango con sensor, modelo, magnitud y unidad (máx. 100 000 filas) |
+
+Ver "Reportes" más abajo.
+
+### Datos de Sensores (lecturas crudas)
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
 | GET | `/api/devices/:id/data` | Historial de lecturas. Query params: `type` (sensor_type), `limit` (default 100) |
@@ -443,6 +452,31 @@ Authorization: Bearer <token>
 | DELETE | `/api/ota/firmware/:id` | Eliminar firmware |
 | POST | `/api/ota/update/:deviceId` | Enviar OTA a un dispositivo |
 | POST | `/api/ota/update-all` | Enviar OTA a todos los dispositivos (encola los dormidos) |
+
+### Reportes
+
+La vista **Reportes** del dashboard (menú lateral o botón "Reportes" de cada
+dispositivo) reúne todo el historial. El modal del dispositivo queda solo para
+configurar.
+
+- **Datos agregados en el servidor.** `/sensors` elige el intervalo más fino que
+  deja cada gráfico en 300 puntos como mucho: 5 min para 24 h, 1 h para 7 días,
+  3 h para 30 días. Devuelve promedio, mínimo y máximo por intervalo, alineados
+  con una rejilla de tiempos común (`buckets`), así que todas las series comparten
+  el mismo eje. Un intervalo sin lecturas vale `null`.
+- **Un sensor físico por entrada** (`key` = `origen:pin`), con nombre y modelo
+  sacados de la configuración (`Temp Humedad` / `AHT20 · 0x38`) y sus magnitudes.
+  Cada una trae su resumen (`min`, `max`, `avg`, `count`, `last`, `last_at`).
+- **Origen de cada lectura.** `sensor_data` tiene la columna `source` (dht, i2c,
+  gpio, ultrasonic). Hacía falta porque `sensor_pin` guarda el pin en un DHT y el
+  id de configuración en un I2C: un DHT en el pin 4 y un I2C con id 4 se mezclaban
+  en la misma serie. Las lecturas anteriores a la columna se atribuyen como hacía
+  el historial: primero a un DHT en ese pin y después a un I2C con ese id.
+- **Gráficos.** El dashboard dibuja una línea por sensor, con la banda mín–máx
+  cuando hay uno solo. Solo corta la línea si faltan datos durante más de dos
+  ciclos de deep sleep, para que un dispositivo dormido no parezca desconectado.
+  Con un rango relativo ("24 horas") la vista se refresca cada minuto, y las
+  grabaciones nuevas aparecen al instante.
 
 ### Notas sobre `GET /api/devices/:id/data`
 
@@ -654,6 +688,7 @@ MiniOS_Backend/
 │       ├── api.js         # REST API (devices, GPIO, DHT, I2C, ultrasonic, data)
 │       ├── auth.js        # Autenticación JWT
 │       ├── audio.js       # Micrófono: configuración, subida y reproducción
+│       ├── reports.js     # Reportes: historial agregado de sensores y audio, CSV
 │       └── ota.js         # Gestión de firmware OTA
 ├── public/                # Dashboard web (HTML + CSS + JS)
 │   ├── dashboard.html

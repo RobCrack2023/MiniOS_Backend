@@ -49,6 +49,14 @@ function initDatabase() {
     }
   }
 
+  // sensor_pin guarda el pin en un DHT pero el id de config en un I2C: sin el
+  // origen, un DHT en el pin 4 y un I2C con id 4 se mezclaban en la misma serie
+  const sensorDataCols = db.prepare("PRAGMA table_info(sensor_data)").all().map(c => c.name);
+  if (!sensorDataCols.includes('source')) {
+    db.exec('ALTER TABLE sensor_data ADD COLUMN source TEXT');
+    console.log('🔧 Migración: columna source añadida a sensor_data');
+  }
+
   console.log('📦 Base de datos inicializada');
 
   // Crear usuario admin si no hay usuarios.
@@ -345,12 +353,12 @@ function deleteI2cConfig(deviceId, i2cAddress) {
 // SENSOR DATA
 // ============================================
 
-function saveSensorData(deviceId, sensorType, value, pin = null) {
+function saveSensorData(deviceId, sensorType, value, pin = null, source = null) {
   const stmt = db.prepare(`
-    INSERT INTO sensor_data (device_id, sensor_type, sensor_pin, value, recorded_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO sensor_data (device_id, sensor_type, sensor_pin, source, value, recorded_at)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
-  return stmt.run(deviceId, sensorType, pin, value, new Date().toISOString());
+  return stmt.run(deviceId, sensorType, pin, source, value, new Date().toISOString());
 }
 
 const MAX_SENSOR_ROWS = 50000;
@@ -391,6 +399,85 @@ function countSensorData(deviceId, sensorType = null, fromDate = null, toDate = 
   ).get(...params);
 
   return row.total;
+}
+
+// ============================================
+// REPORTES (datos agregados)
+// ============================================
+
+/**
+ * Lecturas agregadas por intervalos de `bucketSeconds` entre `from` y `to`
+ * (ISO 8601). Una fila por serie (tipo + origen + pin) e intervalo. Así un
+ * gráfico de 30 días recibe unos cientos de puntos en vez de 50.000 filas, y
+ * todas las series comparten los mismos instantes en el eje X.
+ */
+function getSensorAggregates(deviceId, from, to, bucketSeconds) {
+  return db.prepare(`
+    SELECT sensor_type, source, sensor_pin,
+           (CAST(strftime('%s', recorded_at) AS INTEGER) / ?) * ? AS bucket,
+           AVG(value) AS avg, MIN(value) AS min, MAX(value) AS max, COUNT(*) AS n
+    FROM sensor_data
+    WHERE device_id = ? AND recorded_at >= ? AND recorded_at <= ?
+    GROUP BY sensor_type, source, sensor_pin, bucket
+    ORDER BY bucket
+  `).all(bucketSeconds, bucketSeconds, deviceId, from, to);
+}
+
+/** Mínimo, máximo, promedio y número de lecturas de cada serie en el rango. */
+function getSensorSummary(deviceId, from, to) {
+  return db.prepare(`
+    SELECT sensor_type, source, sensor_pin,
+           MIN(value) AS min, MAX(value) AS max, AVG(value) AS avg, COUNT(*) AS count
+    FROM sensor_data
+    WHERE device_id = ? AND recorded_at >= ? AND recorded_at <= ?
+    GROUP BY sensor_type, source, sensor_pin
+  `).all(deviceId, from, to);
+}
+
+/**
+ * Última lectura de cada serie en el rango. SQLite devuelve las columnas sueltas
+ * (value) de la fila que da el MAX() cuando es el único agregado de la consulta.
+ */
+function getSensorLast(deviceId, from, to) {
+  return db.prepare(`
+    SELECT sensor_type, source, sensor_pin, value, MAX(recorded_at) AS recorded_at
+    FROM sensor_data
+    WHERE device_id = ? AND recorded_at >= ? AND recorded_at <= ?
+    GROUP BY sensor_type, source, sensor_pin
+  `).all(deviceId, from, to).map(r => ({ ...r, recorded_at: toUtcIso(r.recorded_at) }));
+}
+
+/** Lecturas crudas del rango para exportar, de la más antigua a la más reciente. */
+function getSensorRows(deviceId, from, to, limit) {
+  return db.prepare(`
+    SELECT sensor_type, source, sensor_pin, value, recorded_at
+    FROM sensor_data
+    WHERE device_id = ? AND recorded_at >= ? AND recorded_at <= ?
+    ORDER BY recorded_at ASC
+    LIMIT ?
+  `).all(deviceId, from, to, limit).map(r => ({ ...r, recorded_at: toUtcIso(r.recorded_at) }));
+}
+
+/** Grabaciones del rango, de la más reciente a la más antigua. */
+function getAudioRecordingsInRange(deviceId, from, to, limit) {
+  return db.prepare(`
+    SELECT * FROM audio_recordings
+    WHERE device_id = ? AND recorded_at >= ? AND recorded_at <= ?
+    ORDER BY recorded_at DESC, id DESC
+    LIMIT ?
+  `).all(deviceId, from, to, limit).map(normalizeRecording);
+}
+
+function getAudioSummary(deviceId, from, to) {
+  return db.prepare(`
+    SELECT COUNT(*) AS count,
+           COALESCE(SUM(duration_ms), 0) AS total_duration_ms,
+           COALESCE(SUM(size_bytes), 0) AS total_bytes,
+           AVG(rms_dbfs) AS avg_rms_dbfs,
+           MAX(peak_dbfs) AS max_peak_dbfs
+    FROM audio_recordings
+    WHERE device_id = ? AND recorded_at >= ? AND recorded_at <= ?
+  `).get(deviceId, from, to);
 }
 
 /**
@@ -739,6 +826,13 @@ module.exports = {
   getSensorData,
   countSensorData,
   cleanOldSensorData,
+  // Reportes
+  getSensorAggregates,
+  getSensorSummary,
+  getSensorLast,
+  getSensorRows,
+  getAudioRecordingsInRange,
+  getAudioSummary,
   // Firmware
   getFirmwareList,
   getFirmwareById,

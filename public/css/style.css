@@ -395,6 +395,9 @@ select option { background: var(--bg-raised); }
 
 .main-content {
     flex: 1;
+    /* Un hijo flex no se estrecha por debajo del contenido más ancho que tenga:
+       sin esto una tabla ancha ensanchaba toda la página en el móvil */
+    min-width: 0;
     margin-left: 220px;
     padding: 28px 32px;
 }
@@ -1746,6 +1749,253 @@ input:checked + .slider:before {
 }
 
 /* ============================================
+   REPORTES
+   ============================================ */
+.text-accent { color: var(--text-accent); }
+
+/* .btn-primary es de ancho completo en el resto del panel (formularios) */
+.reports .btn { width: auto; }
+
+.report-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    margin-bottom: 20px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+}
+
+.report-device {
+    min-width: 180px;
+    padding: 6px 10px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: var(--font-ui);
+    font-size: 14px;
+}
+
+.report-presets {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.report-chip {
+    padding: 6px 12px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: none;
+    border-right: 1px solid var(--border);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition);
+}
+.report-chip:last-child { border-right: none; }
+.report-chip:hover { background: var(--bg-raised); color: var(--text-primary); }
+.report-chip.active { background: var(--primary-glow); color: var(--text-primary); box-shadow: inset 0 -2px 0 var(--primary); }
+
+.report-custom {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.report-custom input {
+    padding: 5px 8px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color-scheme: dark;
+}
+
+.report-spacer { flex: 1; }
+
+.report-meta {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.report-error {
+    margin-bottom: 16px;
+    padding: 10px 14px;
+    color: var(--text-primary);
+    background: var(--danger-glow);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius);
+}
+
+.report-empty {
+    padding: 28px;
+    text-align: center;
+    color: var(--text-muted);
+    background: var(--bg-surface);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-lg);
+}
+
+.report-section-title {
+    margin: 28px 0 12px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+.report-section-title small {
+    margin-left: 8px;
+    color: var(--text-muted);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    text-transform: none;
+}
+
+/* Resumen: una tarjeta por sensor físico */
+.report-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+}
+
+.report-sensor-card {
+    min-width: 0;
+    padding: 14px 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+}
+
+.report-sensor-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 10px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+}
+
+.report-swatch {
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+}
+
+.report-sensor-name { color: var(--text-primary); font-weight: 700; font-size: 16px; line-height: 1.2; }
+.report-sensor-model { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+
+.report-metric {
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(42, 64, 96, 0.5);
+}
+.report-metric:last-child { border-bottom: none; padding-bottom: 0; }
+
+.report-metric-name {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.report-metric-last {
+    color: var(--text-primary);
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.15;
+}
+.report-metric-last small {
+    margin-left: 4px;
+    color: var(--text-secondary);
+    font-size: 15px;
+    font-weight: 500;
+}
+
+.report-metric-range { color: var(--text-secondary); font-size: 13px; }
+.report-metric-range b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.report-metric-foot { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+
+/* Gráficos */
+.report-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 14px;
+}
+
+.report-chart-card {
+    /* Sin esto la celda del grid no baja del ancho del canvas ya dibujado y el
+       gráfico no puede encogerse al estrechar la ventana (o en el móvil) */
+    min-width: 0;
+    padding: 14px 16px 10px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+}
+
+.report-chart-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+    font-weight: 700;
+    font-size: 15px;
+}
+.report-chart-title small { color: var(--text-muted); font-weight: 500; font-size: 12px; }
+
+.report-chart-box {
+    position: relative;
+    height: 230px;
+}
+
+/* Audio */
+.report-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.report-stat {
+    padding: 12px 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+}
+
+.report-stat-label {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.report-stat-value { color: var(--text-primary); font-size: 26px; font-weight: 700; line-height: 1.2; }
+.report-stat-value small { color: var(--text-secondary); font-size: 14px; font-weight: 500; }
+
+.report-audio { height: 32px; max-width: 240px; }
+
+/* La tabla de grabaciones no cabe en un móvil: se desplaza dentro de su caja en
+   vez de ensanchar toda la página */
+.reports .table-container {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+/* ============================================
    RESPONSIVE
    ============================================ */
 @media (max-width: 768px) {
@@ -1754,5 +2004,35 @@ input:checked + .slider:before {
     }
     .gpio-controls-grid {
         grid-template-columns: 1fr;
+    }
+    .report-chart-grid {
+        grid-template-columns: 1fr;
+    }
+    .report-toolbar .report-spacer {
+        display: none;
+    }
+    /* Los cinco rangos no caben en 375 px: se reparten el ancho y pasan de línea */
+    .report-device,
+    .report-presets {
+        width: 100%;
+    }
+    .report-presets {
+        flex-wrap: wrap;
+    }
+    .report-chip {
+        flex: 1 1 auto;
+        padding: 6px 8px;
+    }
+    .report-section-title small {
+        display: block;
+        margin: 2px 0 0;
+    }
+    .reports th,
+    .reports td {
+        padding: 8px 10px;
+        font-size: 13px;
+    }
+    .report-audio {
+        max-width: 170px;
     }
 }

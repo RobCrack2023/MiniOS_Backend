@@ -20,6 +20,7 @@ const apiRoutes = require('./routes/api');
 const authRoutes = require('./routes/auth');
 const otaRoutes = require('./routes/ota');
 const audioRoutes = require('./routes/audio');
+const reportsRoutes = require('./routes/reports');
 const { purgeOldRecordings } = require('./audioStore');
 
 const PORT = process.env.PORT || 3001;
@@ -102,6 +103,7 @@ async function start() {
     await fastify.register(apiRoutes, { prefix: '/api' });
     await fastify.register(otaRoutes, { prefix: '/api/ota' });
     await fastify.register(audioRoutes, { prefix: '/api' });
+    await fastify.register(reportsRoutes, { prefix: '/api/reports' });
 
     // Purga periódica del historial: sin esto la tabla sensor_data crecía sin límite
     // (un HC-SR04 leyendo cada 100 ms son ~860.000 filas al día por sensor).

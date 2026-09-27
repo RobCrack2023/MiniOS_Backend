@@ -1,3 +1,12 @@
+// Instancias de Chart.js de la vista Reportes. Van fuera del estado de Alpine:
+// si Alpine las envuelve en su Proxy reactivo, Chart.js se rompe al redibujar.
+const reportCharts = new Map();
+
+// Paleta categórica (modo oscuro), validada contra la superficie #172233 del
+// dashboard: bandas de luminosidad y croma, separación para daltonismo entre
+// colores vecinos y contraste >= 3:1. El orden es parte de la validación.
+const SERIES_COLORS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
+
 function app() {
     return {
         // Auth
@@ -28,10 +37,8 @@ function app() {
         deviceI2cs: [],
         deviceUltrasonics: [],
 
-        // Audio (micrófono I2S)
+        // Audio (micrófono I2S): la configuración va en el modal, las grabaciones en Reportes
         audioConfig: null,
-        audioRecordings: [],
-        audioTotal: 0,
         audioUrls: {},       // id de grabación -> blob URL ya descargado
         audioMessage: '',
 
@@ -62,25 +69,26 @@ function app() {
         scanTimeout: null,
         scanMessage: '',
 
-        // History Modal
-        showHistoryModal: false,
-        historyDevice: null,
-        historyConfig: { gpio: [], dht: [], i2c: [], ultrasonic: [] },
-        historyRawData: [],
-        historyTab: '',
-        historyChartInstance: null,
-        historyLoading: false,
-        historyLimit: 100,
-        historyRangeMode: 'limit',   // 'limit' | 'preset' | 'custom'
-        historyPreset: '',            // '1h' | '6h' | '24h' | '7d'
-        historyFrom: '',              // datetime-local string (hora local)
-        historyTo: '',
-        historyRecordCount: null,
-        historyTruncated: false,
-
-        // Techos al consultar por rango de fechas (el backend admite hasta 50.000)
-        HISTORY_RANGE_LIMIT: 10000,
-        EXPORT_RANGE_LIMIT: 50000,
+        // Reportes (historial agregado de sensores y audio)
+        reports: {
+            deviceId: null,
+            preset: '24h',      // '1h' | '24h' | '7d' | '30d' | 'custom'
+            from: '',           // datetime-local (hora local) cuando preset = 'custom'
+            to: '',
+            loading: false,
+            error: '',
+            sensors: null,      // respuesta de /api/reports/devices/:id/sensors
+            audio: null,        // respuesta de /api/reports/devices/:id/audio
+            updatedAt: null,
+            sensorKeys: [],     // orden fijo de sensores del dispositivo (decide el color)
+            keysFor: null       // dispositivo al que corresponde sensorKeys
+        },
+        REPORT_PRESETS: [
+            { id: '1h', label: '1 hora', ms: 3600000 },
+            { id: '24h', label: '24 horas', ms: 86400000 },
+            { id: '7d', label: '7 días', ms: 7 * 86400000 },
+            { id: '30d', label: '30 días', ms: 30 * 86400000 }
+        ],
         newFirmware: { version: '', description: '', file: null },
         passwordForm: { current: '', new: '' },
         timezoneForm: { timezone: 'America/Santiago' },
@@ -113,6 +121,7 @@ function app() {
         get viewTitle() {
             const titles = {
                 devices: 'Dispositivos',
+                reports: 'Reportes',
                 firmware: 'Firmware / OTA',
                 settings: 'Configuración'
             };
@@ -160,6 +169,22 @@ function app() {
 
             // Conectar WebSocket
             this.connectWebSocket();
+
+            // Reportes: con un rango relativo ("últimas 24 h") se refresca cada
+            // minuto mientras la vista está abierta; al salir se para y se liberan
+            // los gráficos
+            this.$watch('currentView', view => {
+                if (view === 'reports') {
+                    if (!this.reports.deviceId && this.devices.length) this.reports.deviceId = this.devices[0].id;
+                    this.loadReports();
+                    this._reportsTimer = setInterval(() => {
+                        if (this.reports.preset !== 'custom' && !this.reports.loading) this.loadReports();
+                    }, 60000);
+                } else {
+                    clearInterval(this._reportsTimer);
+                    this.destroyReportCharts();
+                }
+            });
         },
 
         // API Helper
@@ -323,9 +348,12 @@ function app() {
 
                 case 'audio_recording':
                     if (this.showDeviceModal && this.selectedDevice?.id === data.device_id) {
-                        this.audioRecordings.unshift(data.recording);
-                        this.audioTotal++;
-                        this.audioMessage = '';
+                        this.audioMessage = '✅ Grabación recibida: escúchala en Reportes';
+                    }
+                    // Con un rango relativo la grabación nueva entra en el rango: se recarga
+                    if (this.currentView === 'reports' && this.reports.deviceId === data.device_id &&
+                        this.reports.preset !== 'custom') {
+                        this.loadAudioReport();
                     }
                     break;
 
@@ -712,15 +740,11 @@ function app() {
             };
         },
 
+        // El modal solo configura el micrófono: las grabaciones están en Reportes
         async loadAudio(deviceId) {
-            Object.values(this.audioUrls).forEach(url => URL.revokeObjectURL(url));
-            this.audioUrls = {};
             this.audioMessage = '';
-
-            const data = await this.api(`/api/devices/${deviceId}/audio`);
+            const data = await this.api(`/api/devices/${deviceId}/audio?limit=1`);
             this.audioConfig = data.config || this.defaultAudioConfig(this.selectedDevice?.board_model);
-            this.audioRecordings = data.recordings || [];
-            this.audioTotal = data.total || 0;
         },
 
         async saveAudioConfig() {
@@ -764,7 +788,7 @@ function app() {
             try {
                 await this.fetchRecording(rec);
             } catch (err) {
-                this.audioMessage = `❌ No se pudo cargar la grabación (${err.message})`;
+                this.reports.error = `No se pudo cargar la grabación (${err.message})`;
             }
         },
 
@@ -775,7 +799,7 @@ function app() {
                 a.download = rec.filename;
                 a.click();
             } catch (err) {
-                this.audioMessage = `❌ No se pudo descargar la grabación (${err.message})`;
+                this.reports.error = `No se pudo descargar la grabación (${err.message})`;
             }
         },
 
@@ -788,8 +812,8 @@ function app() {
                 URL.revokeObjectURL(this.audioUrls[rec.id]);
                 delete this.audioUrls[rec.id];
             }
-            this.audioRecordings = this.audioRecordings.filter(r => r.id !== rec.id);
-            this.audioTotal--;
+            // Se recarga para que el resumen y el gráfico de niveles cuadren
+            await this.loadAudioReport();
         },
 
         formatDuration(ms) {
@@ -958,299 +982,419 @@ function app() {
         },
 
         // ============================================
-        // HISTORIAL
+        // REPORTES
         // ============================================
 
-        async openHistoryModal(device) {
-            this.historyDevice = { ...device };
-            this.historyRawData = [];
-            this.historyTab = '';
-            this.historyLoading = true;
-            this.showHistoryModal = true;
-            this.historyRangeMode = 'limit';
-            this.historyPreset = '';
-            this.historyFrom = '';
-            this.historyTo = '';
-            this.historyRecordCount = null;
-            this.historyTruncated = false;
+        openReports(device) {
+            this.showDeviceModal = false;
+            this.reports.deviceId = device.id;
+            if (this.currentView === 'reports') {
+                this.onReportDeviceChange();
+            } else {
+                this.currentView = 'reports';   // el $watch de init() carga los datos
+            }
+        },
 
-            if (this.historyChartInstance) {
-                this.historyChartInstance.destroy();
-                this.historyChartInstance = null;
+        get reportDevice() {
+            return this.devices.find(d => d.id === this.reports.deviceId) || null;
+        },
+
+        onReportDeviceChange() {
+            this.destroyReportCharts();
+            this.reports.sensors = null;
+            this.reports.audio = null;
+            this.loadReports();
+        },
+
+        // Rango en ISO 8601. Los relativos se recalculan en cada carga ("últimas 24 h" avanza)
+        reportRange() {
+            if (this.reports.preset === 'custom') {
+                const from = this.reports.from ? new Date(this.reports.from) : null;
+                const to = this.reports.to ? new Date(this.reports.to) : new Date();
+                if (!from || isNaN(from) || isNaN(to)) return null;
+                return { from: from.toISOString(), to: to.toISOString() };
+            }
+            const preset = this.REPORT_PRESETS.find(p => p.id === this.reports.preset) || this.REPORT_PRESETS[1];
+            const now = Date.now();
+            return { from: new Date(now - preset.ms).toISOString(), to: new Date(now).toISOString() };
+        },
+
+        reportQuery() {
+            const range = this.reportRange();
+            return range ? `from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}` : null;
+        },
+
+        setReportPreset(id) {
+            this.reports.preset = id;
+            if (id === 'custom' && !this.reports.from) {
+                // Se propone el último día como punto de partida del rango personalizado
+                const toLocalInput = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                this.reports.to = toLocalInput(new Date());
+                this.reports.from = toLocalInput(new Date(Date.now() - 86400000));
+            }
+            this.loadReports();
+        },
+
+        // Orden fijo de los sensores del dispositivo según su configuración: el color
+        // de cada uno sale de aquí, así no cambia aunque otro sensor no tenga datos
+        async loadReportSensorKeys() {
+            const cfg = await this.api(`/api/devices/${this.reports.deviceId}`);
+            this.reports.sensorKeys = [
+                ...(cfg.i2c || []).map(s => `i2c:${s.id}`),
+                ...(cfg.dht || []).map(d => `dht:${d.pin}`),
+                ...(cfg.ultrasonic || []).map(u => `ultrasonic:${u.trig_pin}`),
+                ...(cfg.gpio || []).filter(g => g.mode.includes('INPUT')).map(g => `gpio:${g.pin}`)
+            ];
+            this.reports.keysFor = this.reports.deviceId;
+        },
+
+        reportColor(key) {
+            const i = this.reports.sensorKeys.indexOf(key);
+            // Pasado el octavo color no se inventa otro: los sensores sin color propio
+            // (o ya eliminados de la configuración) van en gris neutro
+            return i >= 0 && i < SERIES_COLORS.length ? SERIES_COLORS[i] : '#7d93ab';
+        },
+
+        async loadReports() {
+            if (!this.reports.deviceId) return;
+            const query = this.reportQuery();
+            if (!query) {
+                this.reports.error = 'Elige la fecha de inicio del rango.';
+                return;
             }
 
-            const [configData, historyData] = await Promise.all([
-                this.api(`/api/devices/${device.id}`),
-                this.api(this.buildHistoryUrl())
-            ]);
+            this.reports.loading = true;
+            this.reports.error = '';
+            try {
+                if (this.reports.keysFor !== this.reports.deviceId) await this.loadReportSensorKeys();
 
-            this.historyConfig = {
-                gpio: configData.gpio || [],
-                dht: configData.dht || [],
-                i2c: configData.i2c || [],
-                ultrasonic: configData.ultrasonic || []
+                const id = this.reports.deviceId;
+                const [sensors, audio] = await Promise.all([
+                    this.api(`/api/reports/devices/${id}/sensors?${query}`),
+                    this.api(`/api/reports/devices/${id}/audio?${query}`)
+                ]);
+                if (sensors.error || audio.error) throw new Error(sensors.error || audio.error);
+
+                this.reports.sensors = sensors;
+                this.reports.audio = audio;
+                this.reports.updatedAt = new Date();
+            } catch (err) {
+                this.reports.error = err.message;
+            } finally {
+                this.reports.loading = false;
+            }
+
+            this.$nextTick(() => this.renderReportCharts());
+        },
+
+        async loadAudioReport() {
+            const query = this.reportQuery();
+            if (!query || !this.reports.deviceId) return;
+
+            const audio = await this.api(`/api/reports/devices/${this.reports.deviceId}/audio?${query}`);
+            if (audio.error) {
+                this.reports.error = audio.error;
+                return;
+            }
+            this.reports.audio = audio;
+            this.$nextTick(() => this.renderAudioChart());
+        },
+
+        // Una tarjeta por magnitud (Temperatura, Humedad...) con una línea por sensor
+        get reportMetricGroups() {
+            const data = this.reports.sensors;
+            if (!data) return [];
+
+            const groups = new Map();
+            for (const sensor of data.sensors) {
+                for (const metric of sensor.metrics) {
+                    if (!groups.has(metric.type)) {
+                        groups.set(metric.type, { type: metric.type, name: metric.name, unit: metric.unit, series: [] });
+                    }
+                    groups.get(metric.type).series.push({ sensor, metric, color: this.reportColor(sensor.key) });
+                }
+            }
+            return [...groups.values()];
+        },
+
+        formatReportValue(value, type) {
+            if (value === null || value === undefined) return '—';
+            const decimals = { temperature: 1, humidity: 0, pressure: 1, altitude: 0, distance: 0, gpio: 0 }[type];
+            return Number(value).toFixed(decimals ?? 2);
+        },
+
+        formatBucketSize(seconds) {
+            if (seconds < 3600) return `${seconds / 60} min`;
+            if (seconds < 86400) return `${seconds / 3600} h`;
+            return `${seconds / 86400} d`;
+        },
+
+        destroyReportCharts() {
+            reportCharts.forEach(chart => chart.destroy());
+            reportCharts.clear();
+        },
+
+        // Tooltip y ejes con los tokens del tema oscuro
+        reportChartBase() {
+            return {
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    tooltip: {
+                        backgroundColor: '#233450',
+                        borderColor: '#335070',
+                        borderWidth: 1,
+                        titleColor: '#e8f4ff',
+                        bodyColor: '#9db8d4',
+                        padding: 10,
+                        boxPadding: 4
+                    }
+                }
             };
-            this.historyRawData = historyData.data || [];
-            this.historyLoading = false;
-
-            const types = this.getHistoryTypes();
-            if (types.length > 0) {
-                this.setHistoryTab(types[0]);
-            }
         },
 
-        buildHistoryUrl() {
-            const id = this.historyDevice.id;
-            const params = new URLSearchParams();
-            if (this.historyRangeMode === 'limit') {
-                params.set('limit', this.historyLimit);
-            } else if (this.historyRangeMode === 'preset' && this.historyPreset) {
-                const ms = { '1h': 3600000, '6h': 21600000, '24h': 86400000, '7d': 604800000 };
-                params.set('from', new Date(Date.now() - ms[this.historyPreset]).toISOString());
-                params.set('to', new Date().toISOString());
-            } else if (this.historyRangeMode === 'custom') {
-                if (this.historyFrom) params.set('from', new Date(this.historyFrom).toISOString());
-                if (this.historyTo)   params.set('to',   new Date(this.historyTo).toISOString());
-            }
-            // Con rango de fechas hay que pedir el limite explicitamente: el backend
-            // ya no asume 10.000 filas en silencio
-            if (!params.has('limit')) params.set('limit', this.HISTORY_RANGE_LIMIT);
-            return `/api/devices/${id}/data?${params.toString()}`;
-        },
+        // Eje X de tiempo real (ms), con marcas en horas o días redondos. Un eje de
+        // categorías no sirve: spanGaps numérico solo salva puntos ausentes, no null
+        reportTimeAxis(fromMs, toMs) {
+            const rangeMs = toMs - fromMs;
+            const STEPS = [300e3, 900e3, 1800e3, 3600e3, 7200e3, 10800e3, 21600e3, 43200e3, 86400e3, 172800e3, 604800e3];
+            const timeZone = this.timezoneForm.timezone;
 
-        buildExportUrl() {
-            const id = this.historyDevice.id;
-            const params = new URLSearchParams();
-            if (this.historyTab) params.set('type', this.historyTab);
-            if (this.historyRangeMode === 'limit') {
-                params.set('limit', this.historyLimit);
-            } else if (this.historyRangeMode === 'preset' && this.historyPreset) {
-                const ms = { '1h': 3600000, '6h': 21600000, '24h': 86400000, '7d': 604800000 };
-                params.set('from', new Date(Date.now() - ms[this.historyPreset]).toISOString());
-                params.set('to', new Date().toISOString());
-            } else if (this.historyRangeMode === 'custom') {
-                if (this.historyFrom) params.set('from', new Date(this.historyFrom).toISOString());
-                if (this.historyTo)   params.set('to',   new Date(this.historyTo).toISOString());
-            }
-            if (!params.has('limit')) params.set('limit', this.EXPORT_RANGE_LIMIT);
-            return `/api/devices/${id}/data/export?${params.toString()}`;
-        },
+            // Desfase de la zona horaria configurada: sin él las marcas diarias caían
+            // en la medianoche UTC (las 21:00 en Chile)
+            const at = new Date(fromMs);
+            const offset = Date.parse(at.toLocaleString('en-US', { timeZone })) -
+                           Date.parse(at.toLocaleString('en-US', { timeZone: 'UTC' }));
 
-        applyPreset(preset) {
-            this.historyRangeMode = 'preset';
-            this.historyPreset = preset;
-            this.historyFrom = '';
-            this.historyTo = '';
-            this.reloadHistoryData();
-        },
-
-        clearDateFilter() {
-            this.historyRangeMode = 'limit';
-            this.historyPreset = '';
-            this.historyFrom = '';
-            this.historyTo = '';
-            this.reloadHistoryData();
-        },
-
-        exportHistoryCsv() {
-            if (!this.historyDevice) return;
-            fetch(this.buildExportUrl(), { headers: { 'Authorization': `Bearer ${this.token}` } })
-                .then(res => {
-                    if (!res.ok) throw new Error('Error al exportar');
-                    const disp = res.headers.get('Content-Disposition') || '';
-                    const match = disp.match(/filename="(.+)"/);
-                    const filename = match ? match[1] : 'export.csv';
-                    return res.blob().then(blob => ({ blob, filename }));
-                })
-                .then(({ blob, filename }) => {
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url; a.download = filename;
-                    document.body.appendChild(a); a.click();
-                    document.body.removeChild(a); URL.revokeObjectURL(url);
-                })
-                .catch(err => alert('Error al exportar CSV: ' + err.message));
-        },
-
-        closeHistoryModal() {
-            if (this.historyChartInstance) {
-                this.historyChartInstance.destroy();
-                this.historyChartInstance = null;
-            }
-            this.showHistoryModal = false;
-            this.historyDevice = null;
-            this.historyRawData = [];
-        },
-
-        async reloadHistoryData() {
-            if (!this.historyDevice) return;
-            // Cancelar render pendiente anterior si lo hay
-            if (this._historyRenderTimer) {
-                clearTimeout(this._historyRenderTimer);
-                this._historyRenderTimer = null;
-            }
-            this.historyLoading = true;
-            const data = await this.api(this.buildHistoryUrl());
-            this.historyRawData = data.data || [];
-            this.historyRecordCount = data.total ?? this.historyRawData.length;
-            this.historyTruncated = Boolean(data.truncated);
-            this.historyLoading = false;
-
-            const types = this.getHistoryTypes();
-            if (this.historyTab && !types.includes(this.historyTab) && types.length > 0) {
-                this.historyTab = types[0];
-            }
-            if (this.historyChartInstance) {
-                this.historyChartInstance.destroy();
-                this.historyChartInstance = null;
-            }
-            if (this.historyTab) {
-                this._historyRenderTimer = setTimeout(() => {
-                    this._historyRenderTimer = null;
-                    this.renderHistoryChart();
-                }, 50);
-            }
-        },
-
-        getHistoryTypes() {
-            const types = [...new Set(this.historyRawData.map(r => r.sensor_type))];
-            const order = ['temperature', 'humidity', 'pressure', 'altitude', 'distance', 'gpio', 'analog'];
-            return types.sort((a, b) => {
-                const ia = order.indexOf(a);
-                const ib = order.indexOf(b);
-                if (ia === -1 && ib === -1) return 0;
-                if (ia === -1) return 1;
-                if (ib === -1) return -1;
-                return ia - ib;
-            });
-        },
-
-        setHistoryTab(type) {
-            this.historyTab = type;
-            if (this.historyChartInstance) {
-                this.historyChartInstance.destroy();
-                this.historyChartInstance = null;
-            }
-            setTimeout(() => this.renderHistoryChart(), 50);
-        },
-
-        getHistoryTypeName(type) {
-            const names = {
-                temperature: 'Temperatura',
-                humidity: 'Humedad',
-                pressure: 'Presión',
-                altitude: 'Altitud',
-                distance: 'Distancia',
-                gpio: 'GPIO',
-                analog: 'Analógico'
+            // Paso de las marcas según el rango y el ancho del gráfico: en un móvil
+            // caben menos etiquetas antes de que se pisen
+            const pickStep = width => {
+                const maxTicks = Math.max(2, Math.min(8, Math.floor(width / 95)));
+                return STEPS.find(s => rangeMs / s <= maxTicks) || STEPS[STEPS.length - 1];
             };
-            return names[type] || type;
-        },
+            let step = pickStep(800);
 
-        getHistoryUnit(type) {
-            const units = {
-                temperature: '°C',
-                humidity: '%',
-                pressure: 'hPa',
-                altitude: 'm',
-                distance: 'cm'
+            const time = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+            const formatFor = s => s >= 86400e3 ? { day: 'numeric', month: 'short' }
+                                 : rangeMs <= 86400e3 ? time
+                                 : { day: 'numeric', month: 'short', ...time };
+
+            return {
+                type: 'linear',
+                min: fromMs,
+                max: toMs,
+                grid: { display: false },
+                afterBuildTicks: axis => {
+                    step = pickStep(axis.chart.width);
+                    const ticks = [];
+                    for (let t = Math.ceil((fromMs + offset) / step) * step - offset; t <= toMs; t += step) {
+                        ticks.push({ value: t });
+                    }
+                    axis.ticks = ticks;
+                },
+                ticks: {
+                    color: '#5a7a98',
+                    maxRotation: 0,
+                    callback: v => new Date(v).toLocaleString('es-CL', { timeZone, ...formatFor(step) })
+                }
             };
-            return units[type] || '';
         },
 
-        getSensorPinLabel(pin) {
-            if (pin == null) return 'Sensor';
-            if (this.historyTab === 'temperature' || this.historyTab === 'humidity') {
-                const dht = this.historyConfig.dht?.find(d => d.pin == pin);
-                if (dht) return dht.name || `DHT pin${pin}`;
-                const i2c = this.historyConfig.i2c?.find(i => i.id == pin);
-                if (i2c) return i2c.name || `${i2c.sensor_type} [0x${i2c.i2c_address.toString(16).toUpperCase()}]`;
+        renderReportCharts() {
+            this.destroyReportCharts();
+            const data = this.reports.sensors;
+            if (!data) return;
+
+            const fromMs = Date.parse(data.from);
+            const toMs = Date.parse(data.to);
+            const times = data.buckets.map(t => Date.parse(t));
+            const bucketMs = data.bucket_seconds * 1000;
+            const base = this.reportChartBase();
+
+            // Qué cuenta como hueco: un dispositivo con deep sleep envía una vez por
+            // ciclo, y si el ciclo es más largo que el intervalo del gráfico muchos
+            // intervalos quedan vacíos sin que haya pasado nada. La línea solo se corta
+            // si faltan datos durante más de dos ciclos (y nunca entre intervalos seguidos).
+            const cycleMs = (this.reportDevice?.sleep_interval || 60000) + 20000;
+            const gapMs = Math.max(1.5 * bucketMs, 2 * cycleMs);
+
+            // Solo los intervalos con datos; así spanGaps puede unir los que estén cerca
+            const toPoints = (values, extra = () => ({})) => values
+                .map((v, i) => (v == null ? null : { x: times[i], y: v, ...extra(i) }))
+                .filter(Boolean);
+
+            // Un valor sin vecinos a menos de gapMs no dibuja segmento: se muestra como punto
+            const isolatedRadius = ctx => {
+                const pts = ctx.dataset.data;
+                const p = pts[ctx.dataIndex];
+                if (!p) return 0;
+                const prev = pts[ctx.dataIndex - 1];
+                const next = pts[ctx.dataIndex + 1];
+                const joined = (prev && p.x - prev.x <= gapMs) || (next && next.x - p.x <= gapMs);
+                return joined ? 0 : 2.5;
+            };
+
+            for (const group of this.reportMetricGroups) {
+                const canvas = document.getElementById(`report-chart-${group.type}`);
+                if (!canvas) continue;
+                Chart.getChart(canvas)?.destroy();
+
+                const single = group.series.length === 1;
+                const datasets = [];
+
+                for (const { sensor, metric, color } of group.series) {
+                    datasets.push({
+                        label: sensor.label,
+                        data: toPoints(metric.avg, i => ({ min: metric.min[i], max: metric.max[i] })),
+                        borderColor: color,
+                        backgroundColor: color,
+                        borderWidth: 2,
+                        pointRadius: isolatedRadius,
+                        pointHoverRadius: 4,
+                        pointHitRadius: 10,
+                        tension: 0,
+                        spanGaps: gapMs
+                    });
+
+                    // Banda mín–máx de cada intervalo: solo con una serie, con varias satura
+                    if (single) {
+                        datasets.push({ label: 'máx', data: toPoints(metric.max), borderWidth: 0, pointRadius: 0, pointHitRadius: 0,
+                                        fill: '+1', backgroundColor: color + '2e', spanGaps: gapMs, _band: true });
+                        datasets.push({ label: 'mín', data: toPoints(metric.min), borderWidth: 0, pointRadius: 0, pointHitRadius: 0,
+                                        fill: false, spanGaps: gapMs, _band: true });
+                    }
+                }
+
+                const unit = group.unit ? ` ${group.unit}` : '';
+                const fmt = v => this.formatReportValue(v, group.type);
+
+                reportCharts.set(group.type, new Chart(canvas, {
+                    type: 'line',
+                    data: { datasets },
+                    options: {
+                        ...base,
+                        // Cada sensor puede tener huecos distintos: se agrupa por instante, no por índice
+                        interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                        plugins: {
+                            ...base.plugins,
+                            legend: {
+                                display: !single,
+                                labels: { color: '#9db8d4', boxWidth: 12, boxHeight: 2, filter: item => !datasets[item.datasetIndex]._band }
+                            },
+                            tooltip: {
+                                ...base.plugins.tooltip,
+                                filter: item => !item.dataset._band,
+                                callbacks: {
+                                    title: items => this.formatDate(new Date(items[0].raw.x).toISOString()),
+                                    label: ctx => {
+                                        const p = ctx.raw;
+                                        return ` ${ctx.dataset.label}: ${fmt(p.y)}${unit}  (mín ${fmt(p.min)} · máx ${fmt(p.max)})`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: this.reportTimeAxis(fromMs, toMs),
+                            y: {
+                                grid: { color: 'rgba(157,184,212,0.10)' },
+                                border: { display: false },
+                                ticks: { color: '#5a7a98' },
+                                title: { display: !!group.unit, text: group.unit, color: '#5a7a98' }
+                            }
+                        }
+                    }
+                }));
             }
-            if (this.historyTab === 'pressure' || this.historyTab === 'altitude') {
-                const i2c = this.historyConfig.i2c?.find(i => i.id == pin);
-                if (i2c) return i2c.name || i2c.sensor_type;
-            }
-            if (this.historyTab === 'distance') {
-                const us = this.historyConfig.ultrasonic?.find(u => u.trig_pin == pin);
-                if (us) return us.name || `HC-SR04 TRIG${pin}`;
-            }
-            if (this.historyTab === 'gpio' || this.historyTab === 'analog') {
-                const gpio = this.historyConfig.gpio?.find(g => g.pin == pin);
-                if (gpio) return gpio.name || `GPIO ${pin}`;
-                return `GPIO ${pin}`;
-            }
-            return `Pin ${pin}`;
+
+            this.renderAudioChart();
         },
 
-        renderHistoryChart() {
-            const canvas = document.getElementById('historyChart');
-            if (!canvas || !this.historyTab) return;
+        // Nivel de cada grabación en el tiempo: eje X lineal con la hora real, porque
+        // las grabaciones no llegan a intervalos regulares
+        renderAudioChart() {
+            reportCharts.get('audio')?.destroy();
+            reportCharts.delete('audio');
 
-            // Destruir cualquier instancia huérfana en el canvas (Chart.js v3)
-            const orphan = Chart.getChart(canvas);
-            if (orphan) orphan.destroy();
+            const canvas = document.getElementById('report-chart-audio');
+            const audio = this.reports.audio;
+            const recs = audio?.recordings || [];
+            if (!canvas || recs.length === 0) return;
+            Chart.getChart(canvas)?.destroy();
 
-            if (this.historyChartInstance) {
-                this.historyChartInstance.destroy();
-                this.historyChartInstance = null;
-            }
+            const ordered = [...recs].reverse();
+            const from = Date.parse(audio.from);
+            const to = Date.parse(audio.to);
+            const base = this.reportChartBase();
 
-            // Filtrar y ordenar de más antiguo a más reciente
-            const typeData = [...this.historyRawData]
-                .filter(r => r.sensor_type === this.historyTab)
-                .reverse();
+            const point = (key, rec) => ({ x: Date.parse(rec.recorded_at), y: rec[key], rec });
 
-            if (typeData.length === 0) return;
-
-            // Agrupar por sensor_pin
-            const byPin = {};
-            typeData.forEach(r => {
-                const key = r.sensor_pin != null ? r.sensor_pin : 'default';
-                if (!byPin[key]) byPin[key] = [];
-                byPin[key].push(r);
-            });
-
-            const largeDataset = typeData.length > 300;
-            const colors = ['#2196F3', '#4CAF50', '#FF9800', '#F44336', '#9C27B0', '#00BCD4'];
-            const datasets = Object.entries(byPin).map(([pin, records], i) => ({
-                label: this.getSensorPinLabel(pin),
-                data: records.map(r => r.value),
-                borderColor: colors[i % colors.length],
-                backgroundColor: colors[i % colors.length] + '22',
-                borderWidth: largeDataset ? 1 : 2,
-                pointRadius: records.length > 50 ? 0 : 3,
-                tension: 0,
-                fill: false
-            }));
-
-            // Etiquetas del eje X desde el pin con más datos
-            const mainPin = Object.keys(byPin).sort((a, b) => byPin[b].length - byPin[a].length)[0];
-            const labels = byPin[mainPin].map(r => this.formatDate(r.recorded_at));
-            const unit = this.getHistoryUnit(this.historyTab);
-
-            this.historyChartInstance = new Chart(canvas, {
-                type: 'line',
-                data: { labels, datasets },
+            reportCharts.set('audio', new Chart(canvas, {
+                type: 'scatter',
+                data: {
+                    datasets: [
+                        { label: 'Nivel medio', data: ordered.map(r => point('rms_dbfs', r)),
+                          backgroundColor: SERIES_COLORS[0], borderColor: '#172233', borderWidth: 2, pointRadius: 5, pointHoverRadius: 7 },
+                        { label: 'Pico', data: ordered.map(r => point('peak_dbfs', r)), pointStyle: 'triangle',
+                          backgroundColor: SERIES_COLORS[1], borderColor: '#172233', borderWidth: 2, pointRadius: 5, pointHoverRadius: 7 }
+                    ]
+                },
                 options: {
-                    animation: false,
-                    responsive: true,
-                    maintainAspectRatio: false,
+                    ...base,
+                    interaction: { mode: 'nearest', intersect: true },
+                    onClick: (evt, elements, chart) => {
+                        if (!elements.length) return;
+                        const { datasetIndex, index } = elements[0];
+                        this.playRecording(chart.data.datasets[datasetIndex].data[index].rec);
+                    },
                     plugins: {
-                        legend: { display: Object.keys(byPin).length > 1 },
+                        ...base.plugins,
+                        legend: { labels: { color: '#9db8d4', usePointStyle: true, boxWidth: 8 } },
                         tooltip: {
+                            ...base.plugins.tooltip,
                             callbacks: {
-                                label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.parsed.y).toFixed(2)}${unit ? ' ' + unit : ''}`
+                                title: items => this.formatDate(items[0].raw.rec.recorded_at),
+                                label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} dBFS · ${this.formatDuration(ctx.raw.rec.duration_ms)}`,
+                                footer: () => 'Clic para escucharla'
                             }
                         }
                     },
                     scales: {
-                        x: { ticks: { maxTicksLimit: 8, maxRotation: 30 } },
-                        y: {
-                            title: { display: !!unit, text: unit }
-                        }
+                        x: this.reportTimeAxis(from, to),
+                        y: { suggestedMax: 0, grid: { color: 'rgba(157,184,212,0.10)' }, border: { display: false },
+                             ticks: { color: '#5a7a98' }, title: { display: true, text: 'dBFS', color: '#5a7a98' } }
                     }
                 }
-            });
+            }));
+        },
+
+        async exportReportCsv() {
+            const query = this.reportQuery();
+            if (!query || !this.reports.deviceId) return;
+
+            try {
+                const res = await fetch(`/api/reports/devices/${this.reports.deviceId}/export?${query}`, {
+                    headers: { 'Authorization': `Bearer ${this.token}` }
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const match = (res.headers.get('Content-Disposition') || '').match(/filename="(.+)"/);
+                const url = URL.createObjectURL(await res.blob());
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = match ? match[1] : 'reporte.csv';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+
+                if (res.headers.get('X-Rows-Truncated') === 'true') {
+                    this.reports.error = 'Se exportaron las primeras 100.000 lecturas: acota el rango para obtener el resto.';
+                }
+            } catch (err) {
+                this.reports.error = `No se pudo exportar el CSV (${err.message})`;
+            }
         },
 
         // Guardar timezone

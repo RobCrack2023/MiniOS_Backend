@@ -289,10 +289,10 @@ function handleDeviceData(socket, data) {
     payload.dht.forEach(sensor => {
       console.log(`   DHT pin:${sensor.pin} temp:${sensor.temperature} hum:${sensor.humidity}`);
       if (sensor.temperature !== undefined) {
-        db.saveSensorData(device.id, 'temperature', sensor.temperature, sensor.pin);
+        db.saveSensorData(device.id, 'temperature', sensor.temperature, sensor.pin, 'dht');
       }
       if (sensor.humidity !== undefined) {
-        db.saveSensorData(device.id, 'humidity', sensor.humidity, sensor.pin);
+        db.saveSensorData(device.id, 'humidity', sensor.humidity, sensor.pin, 'dht');
       }
     });
   }
@@ -308,17 +308,18 @@ function handleDeviceData(socket, data) {
         alt: sensor.altitude
       })}`);
 
+      // En I2C sensor_pin guarda el id de la config, no un pin
       if (sensor.temperature !== undefined) {
-        db.saveSensorData(device.id, 'temperature', sensor.temperature, sensor.id);
+        db.saveSensorData(device.id, 'temperature', sensor.temperature, sensor.id, 'i2c');
       }
       if (sensor.humidity !== undefined) {
-        db.saveSensorData(device.id, 'humidity', sensor.humidity, sensor.id);
+        db.saveSensorData(device.id, 'humidity', sensor.humidity, sensor.id, 'i2c');
       }
       if (sensor.pressure !== undefined) {
-        db.saveSensorData(device.id, 'pressure', sensor.pressure, sensor.id);
+        db.saveSensorData(device.id, 'pressure', sensor.pressure, sensor.id, 'i2c');
       }
       if (sensor.altitude !== undefined) {
-        db.saveSensorData(device.id, 'altitude', sensor.altitude, sensor.id);
+        db.saveSensorData(device.id, 'altitude', sensor.altitude, sensor.id, 'i2c');
       }
     });
   }
@@ -335,21 +336,21 @@ function handleDeviceData(socket, data) {
   if (payload.gpio) {
     payload.gpio.forEach(gpio => {
       const sensorType = gpio.analog ? 'analog' : 'gpio';
-      db.saveSensorData(device.id, sensorType, gpio.value, gpio.pin);
+      db.saveSensorData(device.id, sensorType, gpio.value, gpio.pin, 'gpio');
     });
   }
 
   // Compatibilidad con formato antiguo (array analog separado)
   if (payload.analog) {
     payload.analog.forEach(analog => {
-      db.saveSensorData(device.id, 'analog', analog.value, analog.pin);
+      db.saveSensorData(device.id, 'analog', analog.value, analog.pin, 'gpio');
     });
   }
 
   // Guardar datos ultrasónicos
   if (payload.ultrasonic && Array.isArray(payload.ultrasonic)) {
     payload.ultrasonic.forEach(sensor => {
-      db.saveSensorData(device.id, 'distance', sensor.distance, sensor.trig_pin);
+      db.saveSensorData(device.id, 'distance', sensor.distance, sensor.trig_pin, 'ultrasonic');
     });
   }
 
