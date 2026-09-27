@@ -47,7 +47,13 @@ function app() {
         // Forms
         newGpio: { pin: '', mode: 'OUTPUT', name: '' },
         newDht: { pin: '', sensor_type: 'DHT11', name: '' },
-        newI2c: { sensor_type: 'AHT20', i2c_address: 56, name: '' },
+        newI2c: { sensor_type: 'AHT20', i2c_address: 0x38, name: '' },
+        // Direcciones posibles de cada sensor (la primera es la que se propone)
+        i2cAddressOptions: {
+            AHT20: [0x38],
+            BMP280: [0x77, 0x76],   // 0x77 en los módulos AHT20 + BMP280
+            BME280: [0x76, 0x77]
+        },
         newUltrasonic: { trig_pin: '', echo_pin: '', name: '' },
 
         // I2C Scan
@@ -525,17 +531,43 @@ function app() {
         },
 
         // I2C Sensors
-        async addI2c() {
-            if (!this.newI2c.sensor_type || this.newI2c.i2c_address === '') return;
+        onI2cTypeChange() {
+            // Antes la dirección se quedaba en 0x38 al elegir BMP280, y como el
+            // backend identifica cada sensor por su dirección, el "+" sobrescribía
+            // el AHT20 en vez de añadir un segundo sensor
+            this.newI2c.i2c_address = this.i2cAddressOptions[this.newI2c.sensor_type][0];
+        },
 
-            await this.api(`/api/devices/${this.selectedDevice.id}/i2c`, {
+        async addI2c() {
+            const { sensor_type, i2c_address } = this.newI2c;
+            if (!sensor_type || !i2c_address) return;
+
+            const hex = '0x' + i2c_address.toString(16).toUpperCase();
+            const existing = this.deviceI2cs.find(s => s.i2c_address === i2c_address);
+            if (existing && existing.sensor_type !== sensor_type) {
+                this.scanMessage = `❌ En ${hex} ya hay un ${existing.sensor_type}. Dos sensores no pueden compartir dirección: elige otra o borra el existente.`;
+                setTimeout(() => { this.scanMessage = ''; }, 6000);
+                return;
+            }
+
+            const res = await this.api(`/api/devices/${this.selectedDevice.id}/i2c`, {
                 method: 'POST',
-                body: JSON.stringify(this.newI2c)
+                body: JSON.stringify({
+                    ...this.newI2c,
+                    name: this.newI2c.name || `${sensor_type} ${hex}`
+                })
             });
 
-            const data = await this.api(`/api/devices/${this.selectedDevice.id}/i2c`);
-            this.deviceI2cs = data.i2c;
-            this.newI2c = { sensor_type: 'AHT20', i2c_address: 56, name: '' };
+            if (res.error) {
+                this.scanMessage = `❌ ${res.message || res.error}`;
+                setTimeout(() => { this.scanMessage = ''; }, 6000);
+                return;
+            }
+
+            this.deviceI2cs = res.i2c;
+            this.newI2c = { sensor_type: 'AHT20', i2c_address: 0x38, name: '' };
+            this.scanMessage = `✅ ${sensor_type} en ${hex} agregado`;
+            setTimeout(() => { this.scanMessage = ''; }, 3000);
         },
 
         async deleteI2c(address) {
@@ -778,6 +810,7 @@ function app() {
                 if (s.temperature != null) vals.push(s.temperature.toFixed(1) + '°C');
                 if (s.humidity    != null) vals.push(s.humidity.toFixed(0) + '%');
                 if (s.pressure    != null) vals.push(s.pressure.toFixed(0) + 'hPa');
+                if (s.altitude    != null) vals.push(s.altitude.toFixed(0) + 'm');
                 return `${s.name||s.sensor_type} ${vals.join(' ')}`;
             }).join(' | '));
             if (payload.gpio?.length)       parts.push('GPIO: ' + payload.gpio.map(g => `${g.name||('P'+g.pin)}=${g.value}`).join(' '));

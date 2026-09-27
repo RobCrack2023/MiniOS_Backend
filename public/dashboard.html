@@ -525,15 +525,24 @@
                     <div class="form-group">
                         <label>Agregar Sensor I2C</label>
                         <div style="display: flex; gap: 10px;">
-                            <select x-model="newI2c.sensor_type" style="width: 120px;">
+                            <select x-model="newI2c.sensor_type" @change="onI2cTypeChange()" style="width: 120px;">
                                 <option value="AHT20">AHT20</option>
                                 <option value="BMP280">BMP280</option>
                                 <option value="BME280">BME280</option>
                             </select>
-                            <input type="text" x-model.number="newI2c.i2c_address" placeholder="Dirección I2C" style="width: 100px;">
+                            <select x-model.number="newI2c.i2c_address" style="width: 100px;">
+                                <template x-for="addr in i2cAddressOptions[newI2c.sensor_type]" :key="addr">
+                                    <option :value="addr" :selected="addr === newI2c.i2c_address"
+                                            x-text="'0x' + addr.toString(16).toUpperCase()"></option>
+                                </template>
+                            </select>
                             <input type="text" x-model="newI2c.name" placeholder="Nombre">
                             <button class="btn btn-success btn-sm" @click="addI2c()">+</button>
                         </div>
+                        <small class="text-gray">
+                            Los módulos AHT20 + BMP280 son dos sensores: añade el AHT20 (0x38) y el BMP280
+                            (0x76 o 0x77). Si no sabes la dirección, usa "Escanear Bus I2C".
+                        </small>
                     </div>
 
                     <table class="mt-20">
@@ -832,6 +841,16 @@
                                                 <div class="sensor-data">
                                                     <span class="sensor-value" x-text="(panelSensorData.i2c?.[i2c.id]?.pressure?.toFixed(1) || '--')"></span>
                                                     <span class="sensor-unit">hPa</span>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <!-- Altitud (BMP280, BME280): calculada a partir de la presión -->
+                                        <template x-if="i2c.sensor_type === 'BMP280' || i2c.sensor_type === 'BME280'">
+                                            <div class="sensor-item">
+                                                <div class="sensor-icon">⛰️</div>
+                                                <div class="sensor-data">
+                                                    <span class="sensor-value" x-text="(panelSensorData.i2c?.[i2c.id]?.altitude?.toFixed(0) ?? '--')"></span>
+                                                    <span class="sensor-unit">m</span>
                                                 </div>
                                             </div>
                                         </template>
